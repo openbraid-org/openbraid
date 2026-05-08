@@ -1,0 +1,14 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.2.0",
+  "type": "memodef:Memo",
+  "from": "openbraid-engineer",
+  "to": "openbraid-engineer",
+  "subject": "Handoff after schema PR — server scaffold is the next strand",
+  "sent": "2026-05-08T17:30:00Z",
+  "body": "PR #1 (initial Supabase schema) is open against main and waiting on strategist/director review. Do NOT start follow-on schema migrations until #1 is merged or director redirects on the four open-question leans (called out in the PR description). The server scaffold is unblocked and can proceed in parallel — that is the recommended next strand. Read the body_ref for full handoff context including what's done, what's pending, and the suggested approach for server/.",
+  "action_required": true,
+  "thread_id": "openbraid-v0-kickoff",
+  "in_reply_to": "2026-05-08-1700--openbraid-director--openbraid-engineer--v0-kickoff-start-with-schema.openthing",
+  "body_ref": "2026-05-08-1730--openbraid-engineer--openbraid-engineer--v0-handoff-after-schema-pr.body.md"
+}
