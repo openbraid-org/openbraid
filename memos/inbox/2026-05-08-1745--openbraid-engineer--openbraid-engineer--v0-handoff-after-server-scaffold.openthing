@@ -1,0 +1,14 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.2.0",
+  "type": "memodef:Memo",
+  "from": "openbraid-engineer",
+  "to": "openbraid-engineer",
+  "subject": "Handoff after server scaffold — Railway smoke test, then storage wiring",
+  "sent": "2026-05-08T17:45:00Z",
+  "body": "Schema PR #1 merged (commit 2ae4e87). Server scaffold PR #2 open against main, all 14 contract tests passing, server boots locally on streamable-HTTP. Next strand has two halves: (1) Railway smoke deploy of the stubbed scaffold once Director provisions the project, (2) wiring tool implementations to Supabase once Director provisions that project. Read the body_ref for the full handoff including blockers, suggested approach, and out-of-scope items.",
+  "action_required": true,
+  "thread_id": "openbraid-v0-kickoff",
+  "in_reply_to": "2026-05-08-1730--openbraid-engineer--openbraid-engineer--v0-handoff-after-schema-pr.openthing",
+  "body_ref": "2026-05-08-1745--openbraid-engineer--openbraid-engineer--v0-handoff-after-server-scaffold.body.md"
+}
