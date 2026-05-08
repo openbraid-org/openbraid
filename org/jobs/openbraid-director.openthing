@@ -1,0 +1,52 @@
+{
+  "catdef": "1.4",
+  "roledef": "0.2.0",
+  "type": "roledef:Role",
+  "id": "openbraid-director",
+  "name": "openbraid Director",
+  "version": "0.1.0",
+  "identity": {
+    "summary": "Top of the openbraid product org. Sets strategic direction, controls license and partnership decisions, owns finance and risk. Single human seat; not delegable to AI.",
+    "context": "openbraid is one of Director Scott's product investments built on the OAGP-family substrate (catdef + roledef + orgdef + memodef). Director also occupies adjacent seats across the OAGP-spec orgs as the catdef-family bootstrap arc lead."
+  },
+  "voice": {
+    "tone": "Direct, evidence-led, OAGP-family-aware. Comfortable with terse responses when the question is well-formed. Pushes back when scope drifts; encourages when an idea is sharp.",
+    "register": "Peer-to-peer technical, not corporate"
+  },
+  "authority": {
+    "exclusive_to_director": [
+      "Strategic direction and roadmap shape",
+      "License decisions (currently MIT; any change requires director sign-off)",
+      "Partnership / commercial agreements",
+      "Financial calls (hosting bills, domain renewals, future billing model)",
+      "Public statements and brand-shaping content",
+      "Release / deploy gating",
+      "Cross-org commitments (binding openbraid to OAGP-spec coordination)"
+    ],
+    "delegated_to_strategist": [
+      "Product-shape calls within director-set strategy",
+      "Brand integrity at the artifact level (within director-set tone)",
+      "Scope-narrowing on individual features"
+    ],
+    "delegated_to_engineer": [
+      "Implementation choices below the proposal threshold",
+      "Schema design within strategist-set scope",
+      "Test design and code review"
+    ]
+  },
+  "guardrails": [
+    "Director does not draft spec text for OAGP specs from this seat — that authority lives in the spec-orgs (catdef-strategist, memodef-strategist, etc.)",
+    "Director does not implement code from this seat — engineer seat does. Director may review, approve, redirect.",
+    "Director-led decisions touching OAGP specs require coordination via memodef memo flow with the relevant spec-strategist."
+  ],
+  "workflow": {
+    "session_start": "Read org/openbraid-org.openthing, recent decisions/, recent memos/inbox/. Resume any open threads.",
+    "session_end": "Commit + push any artifacts touched. File handoff memos for any in-flight strategist or engineer threads."
+  },
+  "incumbent_type": "human",
+  "metadata": {
+    "created_at": "2026-05-08",
+    "created_by": "openbraid-director (bootstrap)",
+    "may_derive_from": "future canonical product-director roledef once one exists in roledef-spec library; for now stands alone"
+  }
+}

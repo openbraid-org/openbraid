@@ -1,0 +1,154 @@
+{
+  "catdef": "1.4",
+  "orgdef": "0.1.0",
+  "type": "orgdef:Organization",
+  "id": "openbraid-org",
+  "name": "openbraid",
+  "version": "0.1.0",
+  "vision": "Persistent memory and role-portable identity for stateless AI sessions. The braid metaphor is the function: multiple Claude conversations across multiple devices and model versions woven into a single continuous identity through a hosted memodef:Memo store and a one-time-PIN authentication ceremony. openbraid sits in the OAGP family as the reference hosted runtime for memodef-as-a-service plus role-portable identity, alongside the four OAGP specs (catdef, roledef, orgdef, memodef).",
+  "mission": "Ship and operate a hosted MCP service at openbraid.app that lets a Claude session claim a named role, authenticate via a one-time PIN delivered out-of-band to the human gatekeeper, and operate against that role's persistent memo store. Maintain memodef compliance for all stored memos so they can serialize cleanly to .openthing for archival into git-based recipients.",
+  "values": [
+    {
+      "name": "Product, not spec",
+      "summary": "openbraid is a hosted reference implementation, not a standards body. Spec-shaped decisions belong upstream in memodef-spec-org. Product-shape decisions belong here. Mixing the two warps both."
+    },
+    {
+      "name": "OAGP-native by construction",
+      "summary": "Storage maps cleanly to memodef:Memo. Roles store roledef references. Personal accounts implicitly form personal orgdefs. The product validates the OAGP role-portable claim as an existence proof, not a marketing claim."
+    },
+    {
+      "name": "Inverse-sncro auth",
+      "summary": "AI claims a role; the human gatekeeper confirms via one-time PIN delivered out-of-band. Conversation channel insecurity is acceptable because the PIN is single-use. This is the right asymmetry for AI requesting persistent identity, the inverse of sncro's human-creates-session pattern."
+    },
+    {
+      "name": "Decentralization where it serves the user",
+      "summary": "memodef offloads storage and audit-trail responsibility onto the recipient (git). openbraid centralizes only the persistence prosthetic that stateless AI runtimes need. The hosted-store model is justified by the audience (sessions with no other option), not preferred over the decentralized one."
+    },
+    {
+      "name": "Open source, hosted moat",
+      "summary": "Code is MIT. The product moat is the hosted service quality, brand, and ecosystem position — not source-code secrecy. Users who want to self-host are equal citizens."
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "Hosted MCP server providing persistent memo storage to authenticated Claude sessions",
+      "Web control panel for role management, live PIN delivery, and memo browsing",
+      "Supabase-backed user accounts with multi-role support",
+      "Conformance to memodef:Memo content type for all stored memos",
+      "Cross-OAGP coordination (memodef compliance, roledef storage, orgdef shape)"
+    ],
+    "out_of_scope": [
+      "Authoring or amending OAGP specs (those belong in their respective spec-orgs)",
+      "Becoming the canonical MCP memo runtime (one of many; equal citizens)",
+      "Memodef notification-layer protocol (deferred to memodef-notify spec)",
+      "Project-management or task-tracking (orgdef explicitly excludes this; openbraid inherits)"
+    ]
+  },
+  "governance": {
+    "model": "Director-led product org with bounded AI authority. Director makes strategic, license, partnership, and financial calls. Strategist makes product-shape calls within Director-set strategy. Engineer implements within strategist-set scope. AI seats draft, validate, decide within their scope, and sign off; Director merges any change touching strategy, license, or money.",
+    "decision_artifacts": "Strategist-level product decisions land in decisions/ as markdown. Proposals land in proposals/. Engineer implementation choices below the proposal threshold do not need paper trail."
+  },
+  "positions": [
+    {
+      "id": "openbraid-director",
+      "name": "Director",
+      "role_definition": {
+        "id": "openbraid-director",
+        "version": "0.1.0",
+        "url": "./jobs/openbraid-director.openthing"
+      },
+      "status": "staffed",
+      "incumbent": {
+        "type": "human",
+        "name": "Scott",
+        "contact": "scott@confusedgorilla.com"
+      }
+    },
+    {
+      "id": "openbraid-strategist",
+      "name": "Strategist",
+      "role_definition": {
+        "id": "openbraid-strategist",
+        "version": "0.1.0",
+        "url": "./jobs/openbraid-strategist.openthing"
+      },
+      "status": "staffed",
+      "incumbent": {
+        "type": "ai-session-arc",
+        "name": "openbraid-strategist",
+        "contact": "openbraid-strategist@openbraid.app"
+      }
+    },
+    {
+      "id": "openbraid-engineer",
+      "name": "Engineer",
+      "role_definition": {
+        "id": "openbraid-engineer",
+        "version": "0.1.0",
+        "url": "./jobs/openbraid-engineer.openthing"
+      },
+      "status": "staffed",
+      "incumbent": {
+        "type": "ai-session-arc",
+        "name": "openbraid-engineer",
+        "contact": "openbraid-engineer@openbraid.app"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "type": "reports_to",
+      "from": "openbraid-strategist",
+      "to": "openbraid-director"
+    },
+    {
+      "type": "reports_to",
+      "from": "openbraid-engineer",
+      "to": "openbraid-strategist"
+    },
+    {
+      "type": "implements_for",
+      "from": "openbraid-org",
+      "to": {
+        "id": "memodef-spec-org",
+        "url": "https://github.com/memodef-spec/memodef/blob/main/org/memodef-spec.openthing"
+      },
+      "summary": "openbraid is a memodef:Memo implementation and conformance evidence point. Issues found while running openbraid feed back as proposals to memodef-spec."
+    },
+    {
+      "type": "coordinates_with",
+      "from": "openbraid-org",
+      "to": {
+        "id": "roledef-spec-org",
+        "url": "https://github.com/roledef-spec/roledef/blob/main/org/roledef-spec.openthing"
+      },
+      "summary": "openbraid stores roledef references per role; schema changes in roledef affect storage shape."
+    },
+    {
+      "type": "coordinates_with",
+      "from": "openbraid-org",
+      "to": {
+        "id": "orgdef-spec-org",
+        "url": "https://github.com/orgdef-spec/orgdef/blob/main/org/orgdef-spec.openthing"
+      },
+      "summary": "openbraid's account-contains-multiple-roles model is implicitly orgdef-shaped; coordinate conventions for personal-org charters."
+    }
+  ],
+  "x.position.working_directory": {
+    "openbraid-director": "https://github.com/openbraid-org/openbraid",
+    "openbraid-strategist": "https://github.com/openbraid-org/openbraid",
+    "openbraid-engineer": "https://github.com/openbraid-org/openbraid"
+  },
+  "x.org.memo_inbox": "memos/inbox/",
+  "metadata": {
+    "created_at": "2026-05-08",
+    "created_by": "openbraid-director",
+    "bootstrap_note": "Org charter scaffolded 2026-05-08 alongside repo init. Derives architectural posture from project_openbraid.md memory. v0 implementation pending; this charter will evolve as scope firms up post-build.",
+    "related_projects": [
+      "memodef-spec/memodef (implements_for)",
+      "roledef-spec/roledef (coordinates_with)",
+      "orgdef-spec/orgdef (coordinates_with)",
+      "oagp-online/oagp-online (family meta-site)"
+    ]
+  }
+}

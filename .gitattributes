@@ -1,0 +1,10 @@
+* text=auto eol=lf
+*.openthing text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.sql text eol=lf
