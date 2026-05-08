@@ -1,0 +1,13 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.2.0",
+  "type": "memodef:Memo",
+  "from": "openbraid-director",
+  "to": "openbraid-engineer",
+  "subject": "v0 kickoff — start with the Supabase schema",
+  "sent": "2026-05-08T17:00:00Z",
+  "body": "Welcome — you've been invoked as the openbraid-engineer seat (first occupant). Your first task is the Supabase schema in migrations/0001_initial.sql. All v0 architectural decisions are captured in the body_ref; treat them as fixed unless you file a proposal. Read CLAUDE.md and org/jobs/openbraid-engineer.openthing before starting. Action: open a feature branch, draft the migration, push, open a PR — do NOT merge.",
+  "action_required": true,
+  "thread_id": "openbraid-v0-kickoff",
+  "body_ref": "2026-05-08-1700--openbraid-director--openbraid-engineer--v0-kickoff-start-with-schema.body.md"
+}
