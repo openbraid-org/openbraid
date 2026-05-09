@@ -337,7 +337,7 @@
                     <div class="label">Last PIN</div>
                     {% if r.last_pin %}
                     <div>
-                        <span class="pin-value">{{ r.last_pin.pin }}</span>
+                        <span class="pin-value">{{ r.last_pin.pin[0:3] }} {{ r.last_pin.pin[3:6] }} {{ r.last_pin.pin[6:9] }}</span>
                         {% if r.last_pin.used_at %}
                         <span class="pin-status used">Used</span>
                         {% elif r.last_pin.expires_at %}
