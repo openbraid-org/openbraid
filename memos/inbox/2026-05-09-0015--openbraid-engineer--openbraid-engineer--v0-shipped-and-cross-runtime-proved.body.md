@@ -16,14 +16,15 @@ Read [`CLAUDE.md`](../../CLAUDE.md) and [`org/jobs/openbraid-engineer.openthing`
 | #6 | Email + password sign-in/sign-up | `b02b815` |
 | #7 | Diagnostic logging on Supabase Auth failures | `f0047e7` |
 
-## Live verification done 2026-05-08
+## Live verification done 2026-05-08 — across THREE runtimes
 
 - Director created Railway service, Supabase project (with migration applied), Google OAuth credentials, custom domain `mcp.openbraid.app`.
 - Director signed into panel via email/password (`scott@confusedgorilla.com`).
-- A Claude Code session claimed `personal-strategist`, got a PIN via the panel, authed, and sent a memo: "Director's favourite colour is blue."
-- A separate **Claude Desktop session** — different runtime, fresh process, no shared memory — claimed the same role, got a fresh PIN, authed, called `list_inbox`, retrieved the memo, and told Director "blue."
+- **Claude Code (VS Code, Opus 4.7)** claimed `personal-strategist`, got a PIN via the panel, authed, and wrote: "Director's favourite colour is blue."
+- **Claude Desktop (Windows native app)** — different runtime, no shared memory — claimed the same role, got a fresh PIN, authed, retrieved the blue memo and reported it back, then wrote: "Director's favourite drink is rum."
+- **Claude mobile (phone)** — third runtime — claimed the same role and wrote: "Director's favourite film is Paris, Texas."
 
-The OAGP role-portable claim went operational. The braid weaves.
+Three runtimes. One role. One mailbox. The OAGP role-portable claim went operational across desktop, native, and mobile transports inside a single hour. The braid weaves.
 
 ## Outstanding threads — pick up in roughly this order
 
