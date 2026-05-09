@@ -1,27 +1,31 @@
 """openbraid MCP server entry point.
 
-Six tools backed by Supabase. The server holds the service-role key and
-is the trusted intermediary; v0 has no RLS. Auth is the inverse-sncro
-PIN ceremony: claim_role -> PIN delivered out-of-band -> auth_with_pin
--> session_token -> read/write memos.
+Single Railway service hosting two surfaces:
+  - MCP tool surface, mounted at `/mcp` (FastMCP streamable-HTTP)
+  - Web panel, served at `/`, `/panel`, `/auth/*`
 
-PIN delivery (v0): the panel doesn't exist yet, so the PIN row lands in
-the `pin_challenges` table and the user reads it from the Supabase
-table editor by hand. Real panel ships in a follow-on strand.
+Six tools backed by Supabase. The server holds the service-role key and
+is the trusted intermediary; v0 has no RLS. Auth for the MCP surface is
+the inverse-sncro PIN ceremony; auth for the panel is Supabase Google
+OAuth via PKCE.
 
 Run locally:
     pip install -e ".[dev]"
-    SUPABASE_URL=... SUPABASE_SERVICE_KEY=... python -m server.main
+    SUPABASE_URL=... SUPABASE_SERVICE_KEY=... SUPABASE_ANON_KEY=... \\
+        PANEL_ORIGIN=http://localhost:8000 python -m server.main
 
 Run on Railway:
-    `Procfile` boots streamable-HTTP on $PORT; env vars set in Railway.
+    `Procfile` boots uvicorn on $PORT; env vars set in Railway.
 """
 
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 
 from fastmcp import Context, FastMCP
+from starlette.applications import Starlette
+from starlette.routing import Mount
 
 from server.db import (
     generate_pin,
@@ -341,14 +345,49 @@ async def mark_read(session_token: str, memo_id: str) -> dict:
     return {"ok": True, "status": result.data[0]["status"]}
 
 
+# --- HTTP host: panel routes + mounted FastMCP ------------------------------
+#
+# FastMCP's http_app() returns a Starlette ASGI app with its own lifespan
+# (session bookkeeping for streamable-HTTP). We host a parent Starlette app
+# that mounts FastMCP under /mcp and adds the panel routes alongside, so a
+# single Railway dyno serves both the AI-facing tool surface and the
+# human-facing UI.
+
+# Build the FastMCP app with its public path (no trailing-slash redirect).
+# Mounting at "/" with an internal "/mcp" route means a request to /mcp
+# matches directly without Starlette's automatic redirect-to-trailing-slash.
+_mcp_app = mcp.http_app(path="/mcp")
+
+
+@asynccontextmanager
+async def _lifespan(app):
+    async with _mcp_app.router.lifespan_context(app):
+        yield
+
+
+from server.panel import panel_routes  # noqa: E402
+
+app = Starlette(
+    routes=[
+        *panel_routes,
+        Mount("/", app=_mcp_app),  # last; only catches /mcp via the inner route
+    ],
+    lifespan=_lifespan,
+)
+
+
 def main() -> None:
-    """Run the openbraid MCP server."""
+    """Run the openbraid MCP server + panel."""
     transport = os.environ.get("FASTMCP_TRANSPORT", "streamable-http")
     if transport == "stdio":
+        # Stdio transport is for local MCP-client integration testing only;
+        # the panel is HTTP and is not exposed in stdio mode.
         mcp.run(transport="stdio")
     else:
+        import uvicorn
+
         port = int(os.environ.get("PORT", "8000"))
-        mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
+        uvicorn.run(app, host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":
