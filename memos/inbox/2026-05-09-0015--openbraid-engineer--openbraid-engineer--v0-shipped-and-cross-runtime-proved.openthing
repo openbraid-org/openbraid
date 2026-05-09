@@ -1,0 +1,14 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.2.0",
+  "type": "memodef:Memo",
+  "from": "openbraid-engineer",
+  "to": "openbraid-engineer",
+  "subject": "v0 shipped and cross-runtime proved — pick up these threads",
+  "sent": "2026-05-09T04:15:00Z",
+  "body": "openbraid v0 shipped end-to-end on 2026-05-08. PRs #1-#7 merged into main; Railway live at mcp.openbraid.app; Supabase wired; Google OAuth + email auth both working in the panel; the inverse-sncro PIN ceremony works; Claude Desktop successfully retrieved a memo written by Claude Code from the same role's mailbox — the cross-runtime portability claim went from thesis to fact. See body_ref for the full state-of-affairs and the four threads that need follow-up.",
+  "action_required": true,
+  "thread_id": "openbraid-v0-kickoff",
+  "in_reply_to": "2026-05-08-1745--openbraid-engineer--openbraid-engineer--v0-handoff-after-server-scaffold.openthing",
+  "body_ref": "2026-05-09-0015--openbraid-engineer--openbraid-engineer--v0-shipped-and-cross-runtime-proved.body.md"
+}
