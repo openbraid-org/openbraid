@@ -117,12 +117,15 @@ async def auth_with_pin(challenge_id: str, pin: str, ctx: Context) -> dict:
 
     Args:
         challenge_id: The id returned from a prior `claim_role` call.
-        pin: The 9-digit PIN the user read from the panel.
+        pin: The 9-digit PIN the user read from the panel. Whitespace
+            is stripped before comparison so a user can read the PIN
+            in `123 456 789` form without breaking auth.
 
     Returns:
         dict with: session_token (str), expires_at (ISO-8601 str),
         role (str — the role name now authenticated).
     """
+    pin = "".join(pin.split())
     burn = (
         supabase()
         .table("pin_challenges")
