@@ -102,3 +102,63 @@ async def get_user_from_token(access_token: str) -> dict | None:
         if r.status_code != 200:
             return None
         return r.json()
+
+
+def _surface_supabase_error(response: httpx.Response, default: str) -> str:
+    """Pull a human message out of a Supabase Auth error response."""
+    try:
+        body = response.json()
+    except ValueError:
+        return default
+    return (
+        body.get("error_description")
+        or body.get("msg")
+        or body.get("error")
+        or default
+    )
+
+
+async def sign_in_with_password(email: str, password: str) -> dict:
+    """Sign in via email + password. Returns the Supabase token response.
+
+    Raises ValueError with a user-presentable message on auth failure.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.post(
+            f"{supabase_url()}/auth/v1/token?grant_type=password",
+            headers={
+                "apikey": supabase_anon_key(),
+                "Content-Type": "application/json",
+            },
+            json={"email": email, "password": password},
+        )
+        if r.status_code != 200:
+            raise ValueError(
+                _surface_supabase_error(r, "Invalid email or password.")
+            )
+        return r.json()
+
+
+async def sign_up_with_password(email: str, password: str) -> dict:
+    """Create a new Supabase Auth user via email + password.
+
+    If the project has email-confirmations enabled, the response will
+    contain a `user` but no `access_token` — the user must click the
+    confirmation link before signing in. If confirmations are disabled,
+    tokens are returned and the caller can set the session cookie
+    immediately.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.post(
+            f"{supabase_url()}/auth/v1/signup",
+            headers={
+                "apikey": supabase_anon_key(),
+                "Content-Type": "application/json",
+            },
+            json={"email": email, "password": password},
+        )
+        if r.status_code not in (200, 201):
+            raise ValueError(
+                _surface_supabase_error(r, "Sign-up failed.")
+            )
+        return r.json()
