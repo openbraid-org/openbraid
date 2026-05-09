@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>openbraid · Roles</title>
+    <style>
+        :root {
+            --bg: #0d0d10;
+            --fg: #e8e8ec;
+            --accent: #c8a96a;
+            --muted: #888;
+            --card: #16161a;
+            --border: #2a2a30;
+            --error: #e07b7b;
+            --notice: #7bc3e0;
+            --status-active: #c8a96a;
+            --status-used: #888;
+            --status-expired: #6a6a72;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+        }
+        header {
+            display: flex;
+            align-items: center;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border);
+        }
+        header h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin: 0;
+            letter-spacing: -0.01em;
+        }
+        nav {
+            display: flex;
+            gap: 1.25rem;
+            flex: 1;
+            margin-left: 2rem;
+        }
+        nav a {
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 0.95rem;
+        }
+        nav a.active {
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .user-bar {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            font-size: 0.9rem;
+            color: var(--muted);
+        }
+        .user-bar form { margin: 0; }
+        .user-bar button {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            padding: 0.4rem 0.8rem;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-family: inherit;
+        }
+        .user-bar button:hover {
+            color: var(--fg);
+            border-color: var(--muted);
+        }
+        main {
+            max-width: 56rem;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+        h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin: 0 0 1rem;
+        }
+        .alert {
+            padding: 0.75rem 1rem;
+            border-radius: 0.375rem;
+            margin: 0 0 1rem;
+            font-size: 0.9rem;
+        }
+        .alert-error {
+            background: rgba(224, 123, 123, 0.1);
+            border: 1px solid var(--error);
+            color: var(--error);
+        }
+        .alert-notice {
+            background: rgba(123, 195, 224, 0.1);
+            border: 1px solid var(--notice);
+            color: var(--notice);
+        }
+        .add-form {
+            padding: 1.5rem;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            margin-bottom: 2rem;
+        }
+        .add-form h3 {
+            font-size: 0.95rem;
+            margin: 0 0 1rem;
+            font-weight: 600;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 0.75rem;
+            align-items: end;
+        }
+        .form-field label {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-bottom: 0.4rem;
+        }
+        .form-field input {
+            width: 100%;
+            padding: 0.6rem 0.8rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 0.375rem;
+            color: var(--fg);
+            font-size: 0.9rem;
+            font-family: inherit;
+        }
+        .form-field input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .add-form button {
+            padding: 0.6rem 1.25rem;
+            background: var(--accent);
+            color: var(--bg);
+            border: 1px solid var(--accent);
+            border-radius: 0.375rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .add-form button:hover {
+            opacity: 0.85;
+        }
+        .role-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .role-card {
+            padding: 1.25rem 1.5rem;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            display: grid;
+            grid-template-columns: 1.4fr 1fr 1.2fr;
+            gap: 1.5rem;
+            align-items: center;
+        }
+        .role-name {
+            font-weight: 600;
+            font-size: 1.05rem;
+            color: var(--fg);
+        }
+        .role-meta {
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-top: 0.3rem;
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        }
+        .access-cell .label,
+        .pin-cell .label {
+            font-size: 0.75rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 0.3rem;
+        }
+        .access-cell .value {
+            font-size: 0.9rem;
+            color: var(--fg);
+        }
+        .access-cell .value.empty {
+            color: var(--muted);
+            font-style: italic;
+        }
+        .pin-value {
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--fg);
+            letter-spacing: 0.08em;
+            user-select: all;
+        }
+        .pin-value.empty {
+            color: var(--muted);
+            font-weight: 400;
+            font-style: italic;
+            font-size: 0.9rem;
+            letter-spacing: normal;
+        }
+        .pin-status {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 600;
+            margin-left: 0.4rem;
+        }
+        .pin-status.active {
+            background: rgba(200, 169, 106, 0.15);
+            color: var(--status-active);
+            border: 1px solid var(--status-active);
+        }
+        .pin-status.used {
+            background: transparent;
+            color: var(--status-used);
+            border: 1px solid var(--border);
+        }
+        .pin-status.expired {
+            background: transparent;
+            color: var(--status-expired);
+            border: 1px solid var(--border);
+        }
+        .pin-time {
+            font-size: 0.75rem;
+            color: var(--muted);
+            margin-top: 0.3rem;
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        }
+        .empty-state {
+            padding: 2rem;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            text-align: center;
+            color: var(--muted);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>openbraid</h1>
+        <nav>
+            <a href="/panel">Inbox</a>
+            <a href="/panel/roles" class="active">Roles</a>
+        </nav>
+        <div class="user-bar">
+            <span>{{ user.email }}</span>
+            <form method="post" action="/auth/logout">
+                <button type="submit">Sign out</button>
+            </form>
+        </div>
+    </header>
+    <main>
+        {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+        {% if notice %}
+        <div class="alert alert-notice">{{ notice }}</div>
+        {% endif %}
+
+        {% if no_account %}
+        <div class="empty-state">
+            <p style="margin: 0 0 0.5rem; font-weight: 600; color: var(--fg)">No openbraid account found.</p>
+            <p style="margin: 0; font-size: 0.9rem">
+                Signed in as <code>{{ email }}</code>, but no <code>accounts</code> row matches this email.
+                Roles can't be created until an account exists.
+            </p>
+        </div>
+        {% else %}
+
+        <div class="add-form">
+            <h3>Add a role</h3>
+            <form method="post" action="/panel/roles/new">
+                <div class="form-row">
+                    <div class="form-field">
+                        <label for="role-name">Name</label>
+                        <input type="text" id="role-name" name="name" placeholder="e.g. personal-strategist" required maxlength="64">
+                    </div>
+                    <div class="form-field">
+                        <label for="role-roledef">Roledef URL <span style="text-transform: none; font-style: italic">(optional)</span></label>
+                        <input type="url" id="role-roledef" name="roledef_url" placeholder="https://...">
+                    </div>
+                    <button type="submit">Create</button>
+                </div>
+            </form>
+        </div>
+
+        <h2>Roles · {{ roles|length }}</h2>
+
+        {% if not roles %}
+        <div class="empty-state">
+            <p style="margin: 0 0 0.5rem">No roles yet.</p>
+            <p style="margin: 0; font-size: 0.85rem">
+                Add one above. AI sessions can claim a role only after it exists here.
+            </p>
+        </div>
+        {% else %}
+        <ul class="role-list">
+            {% for r in roles %}
+            <li class="role-card">
+                <div>
+                    <div class="role-name">{{ r.name }}</div>
+                    <div class="role-meta">
+                        created {{ r.created_at[:10] }}{% if r.roledef_url %} · roledef: <a href="{{ r.roledef_url }}" style="color: var(--muted)" target="_blank">{{ r.roledef_url[:40] }}{% if r.roledef_url|length > 40 %}…{% endif %}</a>{% endif %}
+                    </div>
+                </div>
+                <div class="access-cell">
+                    <div class="label">Last access</div>
+                    {% if r.last_access %}
+                    <div class="value" data-iso="{{ r.last_access }}">{{ r.last_access[:19] }}Z</div>
+                    {% else %}
+                    <div class="value empty">never</div>
+                    {% endif %}
+                </div>
+                <div class="pin-cell">
+                    <div class="label">Last PIN</div>
+                    {% if r.last_pin %}
+                    <div>
+                        <span class="pin-value">{{ r.last_pin.pin }}</span>
+                        {% if r.last_pin.used_at %}
+                        <span class="pin-status used">Used</span>
+                        {% elif r.last_pin.expires_at %}
+                            {# Server-side check happens via JS; we mark as active until expiry #}
+                            <span class="pin-status active" data-expires="{{ r.last_pin.expires_at }}">Active</span>
+                        {% endif %}
+                    </div>
+                    <div class="pin-time" data-iso="{{ r.last_pin.created_at }}">issued {{ r.last_pin.created_at[:19] }}Z</div>
+                    {% else %}
+                    <div class="pin-value empty">—</div>
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% endif %}
+    </main>
+
+    <script>
+    // Mark expired PINs that the template thought were active.
+    document.querySelectorAll('.pin-status.active[data-expires]').forEach(function (el) {
+        var expires = new Date(el.dataset.expires);
+        if (expires <= new Date()) {
+            el.textContent = 'Expired';
+            el.classList.remove('active');
+            el.classList.add('expired');
+        }
+    });
+    // Convert ISO timestamps to local-time, relative form.
+    function relTime(iso) {
+        var d = new Date(iso);
+        var diffMs = new Date() - d;
+        var sec = Math.floor(diffMs / 1000);
+        if (sec < 60) return sec + 's ago';
+        var min = Math.floor(sec / 60);
+        if (min < 60) return min + 'm ago';
+        var hr = Math.floor(min / 60);
+        if (hr < 24) return hr + 'h ago';
+        var day = Math.floor(hr / 24);
+        if (day < 30) return day + 'd ago';
+        return d.toLocaleDateString();
+    }
+    document.querySelectorAll('[data-iso]').forEach(function (el) {
+        el.textContent = relTime(el.dataset.iso);
+        el.title = el.dataset.iso;
+    });
+    </script>
+</body>
+</html>
