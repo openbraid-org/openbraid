@@ -1,0 +1,48 @@
+{% if no_account %}
+<div style="padding: 2rem; background: var(--card); border-radius: 0.5rem; border: 1px solid var(--border)">
+    <p style="margin: 0 0 0.5rem; font-weight: 600">No openbraid account found.</p>
+    <p style="margin: 0; color: var(--muted); font-size: 0.9rem">
+        Signed in as <code>{{ email }}</code>, but no <code>accounts</code> row matches this email.
+        Ask an admin to seed one, or sign in with a different Google account.
+    </p>
+</div>
+{% elif no_roles %}
+<div style="padding: 2rem; background: var(--card); border-radius: 0.5rem; border: 1px solid var(--border)">
+    <p style="margin: 0 0 0.5rem; font-weight: 600">No roles defined yet.</p>
+    <p style="margin: 0; color: var(--muted); font-size: 0.9rem">
+        Add at least one row to <code>roles</code> for your account before AI sessions can claim anything.
+    </p>
+</div>
+{% elif not pins %}
+<div style="padding: 2rem; background: var(--card); border-radius: 0.5rem; border: 1px solid var(--border); text-align: center">
+    <p style="margin: 0 0 0.5rem; color: var(--muted)">No pending PIN requests.</p>
+    <p style="margin: 0; color: var(--muted); font-size: 0.85rem">
+        When an AI session calls <code>claim_role</code>, it'll appear here within 2 seconds.
+    </p>
+</div>
+{% else %}
+<ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 1rem">
+{% for p in pins %}
+<li style="padding: 1.5rem; background: var(--card); border-radius: 0.5rem; border: 1px solid var(--border); display: flex; align-items: center; gap: 2rem">
+    <div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 2rem; font-weight: 700; color: var(--accent); letter-spacing: 0.1em; user-select: all">{{ p.pin }}</div>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 0.25rem">
+        <div style="font-weight: 600">{{ p.role_name }}</div>
+        <div style="font-size: 0.9rem; color: var(--muted)">{{ p.claim_what }}</div>
+        <div style="font-size: 0.85rem; color: var(--muted)" class="expiry" data-expires="{{ p.expires_at }}">expires soon</div>
+    </div>
+</li>
+{% endfor %}
+</ul>
+<script>
+(function () {
+    document.querySelectorAll('.expiry').forEach(function (el) {
+        var expires = new Date(el.dataset.expires);
+        var ms = expires - new Date();
+        if (ms <= 0) { el.textContent = 'expired'; return; }
+        var m = Math.floor(ms / 60000);
+        var s = Math.floor((ms % 60000) / 1000);
+        el.textContent = 'expires in ' + m + 'm ' + (s < 10 ? '0' : '') + s + 's';
+    });
+})();
+</script>
+{% endif %}
