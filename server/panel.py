@@ -1,16 +1,16 @@
 """Panel routes for the openbraid web UI.
 
-v0 scope: sign in with Google, see live list of pending PIN challenges
-for your account. Memo browser and role management land in follow-on
-strands.
-
 Routes:
   GET  /              — landing page (logged-in users redirect to /panel)
   GET  /auth/login    — kick off the OAuth dance
   GET  /auth/callback — handle Supabase's redirect back, set session cookie
   POST /auth/logout   — clear session cookie
-  GET  /panel         — main panel UI (auth-required)
+  POST /auth/email/login   — email + password sign-in
+  POST /auth/email/signup  — email + password sign-up
+  GET  /panel         — pending PIN inbox (auth-required)
   GET  /panel/pins    — HTMX partial: live PIN list (auth-required, polled)
+  GET  /panel/roles   — role management (list + add) (auth-required)
+  POST /panel/roles/new — create a new role for the signed-in account
 """
 
 from __future__ import annotations
@@ -267,6 +267,169 @@ async def pin_list(request: Request):
     return TEMPLATES.TemplateResponse(request, "_pin_list.html", {"pins": pins})
 
 
+def _account_id_for_user(user: dict) -> str | None:
+    """Return the openbraid account_id for the signed-in Supabase user, or None.
+
+    Looks up `accounts` by email — same logic as pin_list/. Returns
+    None when no openbraid account row exists for the email.
+    """
+    email = user.get("email")
+    if not email:
+        return None
+    result = (
+        supabase()
+        .table("accounts")
+        .select("id")
+        .eq("email", email)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    if not result.data:
+        return None
+    return result.data[0]["id"]
+
+
+async def roles_page(request: Request):
+    """Render the roles management page: list of roles + add-role form.
+
+    Per role we show: name, created_at, last successful auth (max
+    auth_sessions.created_at), and the most recent pin_challenge with
+    a status badge (active / used / expired). N+1 query pattern for
+    last-access and last-PIN per role — fine at v0 cardinality.
+    """
+    user = await _current_user(request)
+    if not user:
+        return RedirectResponse("/", status_code=303)
+
+    account_id = _account_id_for_user(user)
+    if not account_id:
+        return TEMPLATES.TemplateResponse(
+            request,
+            "roles.html",
+            {
+                "user": user,
+                "roles": [],
+                "no_account": True,
+                "email": user.get("email"),
+                "error": request.query_params.get("error"),
+                "notice": request.query_params.get("notice"),
+            },
+        )
+
+    roles = (
+        supabase()
+        .table("roles")
+        .select("id, name, roledef_url, created_at")
+        .eq("account_id", account_id)
+        .is_("deleted_at", "null")
+        .order("created_at", desc=False)
+        .execute()
+    )
+
+    enriched = []
+    for role in roles.data:
+        last_session = (
+            supabase()
+            .table("auth_sessions")
+            .select("created_at")
+            .eq("role_id", role["id"])
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        last_pin = (
+            supabase()
+            .table("pin_challenges")
+            .select("pin, created_at, expires_at, used_at, claim_what")
+            .eq("role_id", role["id"])
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        enriched.append(
+            {
+                **role,
+                "last_access": last_session.data[0]["created_at"]
+                if last_session.data
+                else None,
+                "last_pin": last_pin.data[0] if last_pin.data else None,
+            }
+        )
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        "roles.html",
+        {
+            "user": user,
+            "roles": enriched,
+            "no_account": False,
+            "error": request.query_params.get("error"),
+            "notice": request.query_params.get("notice"),
+        },
+    )
+
+
+async def roles_create(request: Request):
+    """Insert a new `roles` row for the signed-in user's account.
+
+    Form-driven, redirects back to /panel/roles. Validation: name
+    must be non-empty after stripping; uniqueness is enforced by
+    the DB's UNIQUE (account_id, name) constraint — caught and
+    surfaced as a user-friendly error.
+    """
+    user = await _current_user(request)
+    if not user:
+        return RedirectResponse("/", status_code=303)
+
+    account_id = _account_id_for_user(user)
+    if not account_id:
+        return RedirectResponse(
+            "/panel/roles?error=No+openbraid+account+found+for+your+email",
+            status_code=303,
+        )
+
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    roledef_url = (form.get("roledef_url") or "").strip() or None
+    if not name:
+        return RedirectResponse(
+            "/panel/roles?error=Role+name+is+required", status_code=303
+        )
+    if len(name) > 64:
+        return RedirectResponse(
+            "/panel/roles?error=Role+name+must+be+64+characters+or+less",
+            status_code=303,
+        )
+
+    try:
+        supabase().table("roles").insert(
+            {
+                "account_id": account_id,
+                "name": name,
+                "roledef_url": roledef_url,
+            }
+        ).execute()
+    except Exception as e:  # noqa: BLE001 — present as a form error
+        msg = str(e)
+        if "duplicate" in msg.lower() or "unique" in msg.lower():
+            friendly = f"A role named '{name}' already exists in your account"
+        else:
+            friendly = f"Could not create role: {msg[:200]}"
+        # Use + for spaces in query params; the browser decodes them.
+        from urllib.parse import quote_plus
+
+        return RedirectResponse(
+            f"/panel/roles?error={quote_plus(friendly)}", status_code=303
+        )
+
+    from urllib.parse import quote_plus
+
+    return RedirectResponse(
+        f"/panel/roles?notice={quote_plus(f'Created role: {name}')}",
+        status_code=303,
+    )
+
+
 panel_routes = [
     Route("/", root),
     Route("/auth/login", login),
@@ -276,4 +439,6 @@ panel_routes = [
     Route("/auth/email/signup", email_signup, methods=["POST"]),
     Route("/panel", panel),
     Route("/panel/pins", pin_list),
+    Route("/panel/roles", roles_page),
+    Route("/panel/roles/new", roles_create, methods=["POST"]),
 ]
