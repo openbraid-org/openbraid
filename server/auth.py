@@ -14,10 +14,13 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
 import secrets
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 SESSION_COOKIE = "ob_session"
 PKCE_VERIFIER_COOKIE = "ob_pkce"
@@ -133,6 +136,11 @@ async def sign_in_with_password(email: str, password: str) -> dict:
             json={"email": email, "password": password},
         )
         if r.status_code != 200:
+            logger.warning(
+                "supabase /auth/v1/token sign-in failed: status=%s body=%s",
+                r.status_code,
+                r.text[:500],
+            )
             raise ValueError(
                 _surface_supabase_error(r, "Invalid email or password.")
             )
@@ -158,6 +166,11 @@ async def sign_up_with_password(email: str, password: str) -> dict:
             json={"email": email, "password": password},
         )
         if r.status_code not in (200, 201):
+            logger.warning(
+                "supabase /auth/v1/signup failed: status=%s body=%s",
+                r.status_code,
+                r.text[:500],
+            )
             raise ValueError(
                 _surface_supabase_error(r, "Sign-up failed.")
             )
