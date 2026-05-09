@@ -1,24 +1,21 @@
 """Contract tests for the openbraid MCP tool surface.
 
-These verify the *shape* of each tool — name, parameters, return-stub
-behavior — independent of any storage. They are the gate that catches
-"tool got renamed", "parameter dropped", "stub silently became no-op"
-regressions.
+These verify the *shape* of each tool — name, parameters, descriptions
+— independent of any storage. They are the gate that catches "tool got
+renamed" or "parameter dropped" regressions.
 
-Once the tools have real implementations, behavioral tests live in
-sibling files (e.g. test_send_memo.py); these contract tests stay focused
-on the wire-level contract that an MCP client sees.
+Behavioral tests live in sibling files marked `@pytest.mark.integration`
+and run against a live Supabase project (skipped by default; production
+smoke is the v0 verification path until a test schema lands).
 """
 
 from __future__ import annotations
 
 import pytest
 
-from server import main as server_main
-
 EXPECTED_TOOLS: dict[str, dict[str, set[str]]] = {
     "claim_role": {
-        "required": {"role_name"},
+        "required": {"role_name", "account_email"},
         "optional": {"claim_what"},
     },
     "auth_with_pin": {
@@ -89,22 +86,3 @@ async def test_tool_has_description(server, tool_name):
     assert tool.description and tool.description.strip(), (
         f"{tool_name} has no description"
     )
-
-
-async def test_stubs_raise_not_implemented():
-    """Confirm every tool is a stub that raises NotImplementedError —
-    catches the regression where someone accidentally lands a real
-    implementation without updating the test."""
-    stub_calls = [
-        lambda: server_main.claim_role(role_name="r"),
-        lambda: server_main.auth_with_pin(challenge_id="c", pin="123456789"),
-        lambda: server_main.send_memo(
-            session_token="s", to_role="r", subject="s", body="b"
-        ),
-        lambda: server_main.list_inbox(session_token="s"),
-        lambda: server_main.read_memo(session_token="s", memo_id="m"),
-        lambda: server_main.mark_read(session_token="s", memo_id="m"),
-    ]
-    for call in stub_calls:
-        with pytest.raises(NotImplementedError, match="v0 stub"):
-            await call()

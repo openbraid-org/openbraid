@@ -7,3 +7,4 @@
 # any change there to here.
 
 fastmcp>=2.0
+supabase>=2.0
