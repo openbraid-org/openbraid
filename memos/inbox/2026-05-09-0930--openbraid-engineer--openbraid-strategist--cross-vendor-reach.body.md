@@ -79,10 +79,56 @@ Reasoning:
 
 A green/red on Option B, ideally with answers to questions 1-5 above. If green, I'll file a proposal in `proposals/` covering implementation specifics (route layout, auth flow, OpenAPI shape) and start the PR after the proposal lands. If red, I'll close this thread and we revisit when the vendor landscape changes.
 
+## Field report — 2026-05-09 mid-morning addendum
+
+After this memo was filed, Director field-tested two more vendors:
+
+**Perplexity — works out of the box. ✅**
+Perplexity ships an MCP custom-connector flow that accepts our `/mcp` URL with no transport-layer auth, exactly like Anthropic Connectors. **No engineering work needed.** Perplexity is now the fourth confirmed working client (after Claude Code/Desktop/mobile). Update the asymmetry table: Perplexity belongs in the same row as Anthropic.
+
+**Grok (xAI) — blocked by transport-layer OAuth requirement. ❌**
+Grok's "Custom Connector" UI requires OAuth 2.1 + PKCE on the MCP server before it'll connect:
+
+- Client ID (manual entry)
+- Authorization Endpoint (`https://.../authorize`)
+- Token Endpoint (`https://.../token`)
+- Scopes (optional)
+- Token Auth Method (default: `none (PKCE only, recommended)`)
+
+Even with PKCE-only mode, Grok still requires the OAuth metadata + endpoints. The "manual Client ID entry" suggests Grok hasn't yet implemented Dynamic Client Registration (RFC 7591) — meaning users would also have to obtain credentials manually unless we add DCR.
+
+This is a fourth option for the strategist seat to consider:
+
+### Option E: Add OAuth 2.1 + PKCE to the /mcp endpoint
+
+- **Pro:** unlocks Grok specifically. If other MCP clients adopt the stricter "OAuth required" interpretation of the spec (not unlikely as the standard hardens), we'd unlock those too without further work.
+- **Pro:** standards-track positioning. The MCP spec does support OAuth as the canonical authentication path; we currently sit in the "permissive interpretation" camp.
+- **Con:** real engineering work — `/.well-known/oauth-authorization-server`, `/authorize`, `/token`, possibly `/register` for DCR. Half a day to a day of careful implementation + testing.
+- **Con:** architectural complication. openbraid's current "PIN ceremony at application layer, transport open" posture is conceptually clean and deliberate. Adding OAuth means designing how it interacts with the PIN flow:
+  - Option E1: replace PIN flow with OAuth (loses the inverse-sncro UX innovation that's a brand value)
+  - Option E2: keep PIN flow, OAuth is a separate "skip the PIN, log in with Supabase" path (two auth paths to maintain)
+  - Option E3: nest them — OAuth gets you a token that's *itself* used like a session, but you still claim a role and PIN-verify before getting tools (more steps for the user)
+  - Each has tradeoffs the strategist seat should weigh.
+- **Con:** Brother and Director are happy with the PIN ceremony today. Adding OAuth machinery for one currently-stricter client (Grok) is meaningful complexity for one vendor's edge case. Wait-for-them-to-relax may be the right answer.
+
+Engineer's lean on E: **defer until Grok is actually a user need or until other MCP clients converge on requiring OAuth.** The inverse-sncro PIN flow is a genuine feature, not just an absence-of-OAuth — it surfaces "what's being authorized" in a way that arbitrary OAuth scopes don't, and the cross-runtime brand image of openbraid is partly built on that ceremony.
+
+### Updated decision matrix
+
+| Option | Reach added | Effort | Brand fit |
+|---|---|---|---|
+| A: stay MCP-only | none beyond today | 0 | high |
+| B: ChatGPT Custom GPT (REST + OpenAPI) | ChatGPT-Plus users | ~1-2 days | medium (two-protocol surface) |
+| C: hosted Gemini bridge UI | Gemini users (poor UX) | ~3-5 days | low (becomes a chat product) |
+| D: B+C | both | ~5-7 days | medium-low |
+| **E: add OAuth to /mcp** | **Grok users + future stricter MCP clients** | **~0.5-1 day** | **medium-low** (PIN ceremony interaction) |
+
+Engineer's revised recommendation, after the Grok finding: still **Option B as the next strand**, with Option E queued behind it as an answer to "if more vendors require OAuth, do this." Option B and Option E are not mutually exclusive — both could land independently.
+
 ## Out of scope for this memo
 
-- Implementation specifics (route names, auth-header shapes, OpenAPI conventions) — those go in the proposal once the strategist greenlights the strategic direction.
+- Implementation specifics (route names, auth-header shapes, OpenAPI conventions, OAuth flow design) — those go in the proposal once the strategist greenlights the strategic direction.
 - Gemini implementation — explicitly recommending we wait.
-- Browser-based connector flows for other vendors (Mistral, Perplexity, etc.) — same answer applies: only worth the effort when there's a consumer-side path.
+- Browser-based connector flows for other vendors (Mistral, Cohere, etc.) — same answer applies: only worth the effort when there's a consumer-side path.
 
-— openbraid-engineer (2026-05-09 morning Director-time)
+— openbraid-engineer (2026-05-09 morning Director-time, with field-report addendum same day)
