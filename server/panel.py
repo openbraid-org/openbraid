@@ -31,6 +31,8 @@ from server.auth import (
     exchange_code,
     generate_pkce_pair,
     get_user_from_token,
+    sign_in_with_password,
+    sign_up_with_password,
 )
 from server.db import supabase
 
@@ -45,11 +47,111 @@ async def _current_user(request: Request) -> dict | None:
     return await get_user_from_token(token)
 
 
+def _set_session_cookie(response, access_token: str):
+    """Apply the standard session-cookie settings for an issued access token."""
+    response.set_cookie(
+        SESSION_COOKIE,
+        access_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=3600,
+    )
+    return response
+
+
 async def root(request: Request):
     user = await _current_user(request)
     if user:
         return RedirectResponse("/panel", status_code=303)
-    return TEMPLATES.TemplateResponse(request, "login.html", {})
+    return TEMPLATES.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "error": request.query_params.get("error"),
+            "notice": request.query_params.get("notice"),
+        },
+    )
+
+
+async def email_login(request: Request):
+    form = await request.form()
+    email = (form.get("email") or "").strip()
+    password = form.get("password") or ""
+    if not email or not password:
+        return TEMPLATES.TemplateResponse(
+            request,
+            "login.html",
+            {"error": "Email and password are required.", "email": email},
+            status_code=400,
+        )
+    try:
+        tokens = await sign_in_with_password(email, password)
+    except ValueError as e:
+        return TEMPLATES.TemplateResponse(
+            request,
+            "login.html",
+            {"error": str(e), "email": email},
+            status_code=400,
+        )
+    access_token = tokens.get("access_token")
+    if not access_token:
+        return TEMPLATES.TemplateResponse(
+            request,
+            "login.html",
+            {"error": "Sign-in succeeded but no token was returned.", "email": email},
+            status_code=500,
+        )
+    return _set_session_cookie(
+        RedirectResponse("/panel", status_code=303), access_token
+    )
+
+
+async def email_signup(request: Request):
+    form = await request.form()
+    email = (form.get("email") or "").strip()
+    password = form.get("password") or ""
+    if not email or not password:
+        return TEMPLATES.TemplateResponse(
+            request,
+            "login.html",
+            {"error": "Email and password are required.", "email": email},
+            status_code=400,
+        )
+    if len(password) < 6:
+        return TEMPLATES.TemplateResponse(
+            request,
+            "login.html",
+            {"error": "Password must be at least 6 characters.", "email": email},
+            status_code=400,
+        )
+    try:
+        result = await sign_up_with_password(email, password)
+    except ValueError as e:
+        return TEMPLATES.TemplateResponse(
+            request,
+            "login.html",
+            {"error": str(e), "email": email},
+            status_code=400,
+        )
+
+    access_token = result.get("access_token")
+    if access_token:
+        # Email confirmation is disabled in this Supabase project — sign
+        # the user in directly.
+        return _set_session_cookie(
+            RedirectResponse("/panel", status_code=303), access_token
+        )
+    return TEMPLATES.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "notice": (
+                f"Account created. Check {email} for a confirmation link "
+                f"to complete sign-up, then come back and sign in."
+            )
+        },
+    )
 
 
 async def login(request: Request):
@@ -85,15 +187,7 @@ async def callback(request: Request):
     response = RedirectResponse("/panel", status_code=303)
     response.delete_cookie(PKCE_VERIFIER_COOKIE)
     response.delete_cookie(OAUTH_STATE_COOKIE)
-    response.set_cookie(
-        SESSION_COOKIE,
-        access_token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        max_age=3600,
-    )
-    return response
+    return _set_session_cookie(response, access_token)
 
 
 async def logout(request: Request):
@@ -178,6 +272,8 @@ panel_routes = [
     Route("/auth/login", login),
     Route("/auth/callback", callback),
     Route("/auth/logout", logout, methods=["POST"]),
+    Route("/auth/email/login", email_login, methods=["POST"]),
+    Route("/auth/email/signup", email_signup, methods=["POST"]),
     Route("/panel", panel),
     Route("/panel/pins", pin_list),
 ]
