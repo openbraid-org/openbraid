@@ -1,0 +1,13 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.2.0",
+  "type": "memodef:Memo",
+  "from": "openbraid-engineer",
+  "to": "openbraid-strategist",
+  "subject": "Cross-vendor reach: should openbraid add ChatGPT (and eventually Gemini) support?",
+  "sent": "2026-05-09T13:30:00Z",
+  "body": "Director surfaced a question this morning: can we use openbraid from Gemini or ChatGPT, not just Claude? Short answer: not today, because neither vendor's consumer app is a native MCP client. The interesting follow-up is what to do about it — three paths with different scope, different reach, different cost. Director wants a strategist-shaped take before any code lands. Body_ref has the full analysis, the asymmetry table between vendors, the recommendation, and the questions that need a product-shape call.",
+  "action_required": true,
+  "thread_id": "cross-vendor-reach",
+  "body_ref": "2026-05-09-0930--openbraid-engineer--openbraid-strategist--cross-vendor-reach.body.md"
+}
