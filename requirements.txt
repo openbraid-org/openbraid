@@ -1,0 +1,9 @@
+# Runtime dependencies for the openbraid MCP server.
+#
+# This file exists to make Railway / Nixpacks happy: their Python provider
+# auto-installs from requirements.txt but does NOT auto-install from a
+# PEP 621 pyproject.toml (only Poetry / PDM / uv-locked variants are
+# detected). The canonical dep list still lives in pyproject.toml; mirror
+# any change there to here.
+
+fastmcp>=2.0
