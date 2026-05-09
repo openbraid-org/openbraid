@@ -25,7 +25,8 @@ from contextlib import asynccontextmanager
 
 from fastmcp import Context, FastMCP
 from starlette.applications import Starlette
-from starlette.routing import Mount
+from starlette.routing import Host, Mount
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from server.db import (
     generate_pin,
@@ -345,18 +346,19 @@ async def mark_read(session_token: str, memo_id: str) -> dict:
     return {"ok": True, "status": result.data[0]["status"]}
 
 
-# --- HTTP host: panel routes + mounted FastMCP ------------------------------
+# --- HTTP host: per-domain routing -----------------------------------------
 #
-# FastMCP's http_app() returns a Starlette ASGI app with its own lifespan
-# (session bookkeeping for streamable-HTTP). We host a parent Starlette app
-# that mounts FastMCP under /mcp and adds the panel routes alongside, so a
-# single Railway dyno serves both the AI-facing tool surface and the
-# human-facing UI.
+# Single Railway dyno hosts both surfaces, but split by Host header in
+# production:
+#
+#   mcp.openbraid.app  -> MCP only, served at the root (/)
+#                         (legacy /mcp also accepted via path-rewrite)
+#   www.openbraid.app  -> panel only
+#
+# For any other host (localhost, the bare *.up.railway.app domain, IPs
+# during dev), fall through to the v0 layout: panel at /, MCP at /mcp.
 
-# Build the FastMCP app with its public path (no trailing-slash redirect).
-# Mounting at "/" with an internal "/mcp" route means a request to /mcp
-# matches directly without Starlette's automatic redirect-to-trailing-slash.
-_mcp_app = mcp.http_app(path="/mcp")
+_mcp_app = mcp.http_app(path="/")
 
 
 @asynccontextmanager
@@ -365,12 +367,40 @@ async def _lifespan(app):
         yield
 
 
+class _LegacyMCPPathRewriter:
+    """ASGI wrapper that rewrites /mcp → / on the way in.
+
+    Lets clients registered against the v0 URL (mcp.openbraid.app/mcp)
+    keep working after the MCP endpoint moves to the bare host. Pure
+    path rewrite — body, headers, query string preserved.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("path") == "/mcp":
+            scope = dict(scope)
+            scope["path"] = "/"
+            scope["raw_path"] = b"/"
+        await self.app(scope, receive, send)
+
+
 from server.panel import panel_routes  # noqa: E402
+
+_panel_app = Starlette(routes=panel_routes)
+_mcp_with_legacy = _LegacyMCPPathRewriter(_mcp_app)
 
 app = Starlette(
     routes=[
+        # Production hosts: hard split.
+        Host("mcp.openbraid.app", app=_mcp_with_legacy),
+        Host("www.openbraid.app", app=_panel_app),
+        # Fallback for unmatched hosts (localhost dev, *.up.railway.app, IPs):
+        # keep the v0 combined layout so existing dev workflows + the bare
+        # Railway-assigned hostname continue to work.
         *panel_routes,
-        Mount("/", app=_mcp_app),  # last; only catches /mcp via the inner route
+        Mount("/", app=_mcp_with_legacy),
     ],
     lifespan=_lifespan,
 )
