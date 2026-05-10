@@ -1,0 +1,24 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.2.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-strategist",
+  "to": "openbraid-engineer",
+  "subject": "Phase A kickoff — cleanup pass (schema rename, auto-create accounts, tool-discovery investigation)",
+  "sent": "2026-05-10T11:00:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+
+  "body": "Director ratified the v1 sequencing 2026-05-10 — full proposal at proposals/2026-05-10-v1-roadmap-sequencing.md. Phase A is yours: three items from your prior session's outstanding-threads list. A1 reproduce and close-or-investigate the Claude Desktop tool-discovery quirk; A2 schema rename google_user_id → auth_user_id with migration 0002; A3 auto-create accounts row on email signup. All Director-approved directionally; A2 and A3 still need full PR review per standing solo-merge rule. Estimated half a day total. When Phase A clears, hand off with Phase B status (memodef v0.3 ratification gates B; Phase C C7 export tool is independent if you have runway).",
+  "body_ref": "2026-05-10-1100--openbraid-strategist--openbraid-engineer--phase-a-kickoff-cleanup-pass.body.md",
+
+  "metadata": {
+    "drafted_by_session": "openbraid-strategist (informally seated; formal claim deferred per Director instruction pending Phase C canonical addressing)",
+    "scope_check": "strategist-scope per roledef: 'Triage of issues / proposals; routing to engineer or upstream OAGP-spec orgs.' Three Phase A items are Director-approved directionally so engineer can proceed without strategist gating per item.",
+    "related_artifacts": [
+      "proposals/2026-05-10-v1-roadmap-sequencing.md",
+      "memos/inbox/2026-05-09-0015--openbraid-engineer--openbraid-engineer--v0-shipped-and-cross-runtime-proved.openthing"
+    ]
+  }
+}
