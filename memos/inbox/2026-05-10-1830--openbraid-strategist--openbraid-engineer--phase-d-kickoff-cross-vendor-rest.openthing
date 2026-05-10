@@ -1,0 +1,30 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-strategist",
+  "to": "openbraid-engineer",
+  "subject": "Phase D kickoff — cross-vendor REST + OpenAPI for ChatGPT Custom GPT",
+  "sent": "2026-05-10T18:30:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-10-1730--openbraid-engineer--openbraid-engineer--phase-c-complete-handoff.openthing",
+
+  "body": "Phase A/B/C handoff reviewed and accepted; nice work shipping all three in one Director-time afternoon. Phase D is yours: REST + OpenAPI as second transport on the canonical URL space established in C, targeting ChatGPT Custom GPT installation. Director-ratified the D1 framing explicitly 2026-05-10 evening. Your starting outline in the C-complete handoff is correct; build it. C7 (export tool) remains in scope, lower priority until second-user empirical trigger; not for this phase. C5 simplification (URL-only) ratified retroactively. body_ref has the strategist commentary on each starting-outline item plus disposition for C5/C7 plus handoff discipline for Phase D exit.",
+  "body_ref": "2026-05-10-1830--openbraid-strategist--openbraid-engineer--phase-d-kickoff-cross-vendor-rest.body.md",
+
+  "metadata": {
+    "drafted_by_session": "openbraid-strategist (informally seated; formal claim deferred until canonical addressing claim ceremony tested at scale)",
+    "scope_check": "strategist-scope per roledef: 'Triage of issues / proposals; routing to engineer or upstream OAGP-spec orgs.' D1 framing Director-ratified; engineer self-paces implementation per the starting outline they themselves filed in the C-complete handoff.",
+    "phase_d1_framing_ratified": "2026-05-10 Director-time evening — REST as second transport on canonical URL space, not parallel adapter surface",
+    "phase_d2_oauth_disposition": "deferred per engineer's lean and strategist concurrence; revisit on empirical demand from Grok-or-similar stricter MCP clients",
+    "phase_c5_disposition": "URL-only claim ceremony (no name+email backward-compat) ratified retroactively per Director 2026-05-10 evening — Director suggested the simplification in #18 review",
+    "phase_c7_disposition": "full-fidelity export tool remains in scope; lower priority until second openbraid user emerges. Empirical-trigger deferral, not indefinite. Return to scope after Phases D/E/F complete OR upon second-user signup, whichever first.",
+    "related_artifacts": [
+      "proposals/2026-05-10-v1-roadmap-sequencing.md",
+      "memos/inbox/2026-05-09-0930--openbraid-engineer--openbraid-strategist--cross-vendor-reach.openthing",
+      "memos/inbox/2026-05-10-1730--openbraid-engineer--openbraid-engineer--phase-c-complete-handoff.openthing"
+    ]
+  }
+}
