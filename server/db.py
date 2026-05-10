@@ -87,6 +87,42 @@ def get_role_position(role_id: str) -> str:
     return result.data[0]["name"]
 
 
+def ensure_account(email: str, auth_user_id: str) -> str:
+    """Idempotently ensure an `accounts` row exists for the given email.
+
+    Returns the account's id. If a row already exists for the email
+    (e.g. the bootstrap row Director seeded manually), this links it
+    to the actual Supabase Auth user by updating `auth_user_id` and
+    returns the existing id. Otherwise inserts a fresh row and returns
+    the new id.
+
+    Used by the email-signup handler so a freshly signed-up user lands
+    on a working `/panel` instead of the "No openbraid account found"
+    empty state. Not exposed as an MCP tool — purely internal.
+    """
+    existing = (
+        supabase()
+        .table("accounts")
+        .select("id")
+        .eq("email", email)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    if existing.data:
+        account_id = existing.data[0]["id"]
+        supabase().table("accounts").update(
+            {"auth_user_id": auth_user_id}
+        ).eq("id", account_id).execute()
+        return account_id
+    inserted = (
+        supabase()
+        .table("accounts")
+        .insert({"email": email, "auth_user_id": auth_user_id})
+        .execute()
+    )
+    return inserted.data[0]["id"]
+
+
 def resolve_role_by_name(account_email: str, role_name: str) -> str:
     """Return role_id for (account_email, role_name).
 
