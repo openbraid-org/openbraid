@@ -152,7 +152,7 @@ def ensure_account(email: str, auth_user_id: str) -> str:
     return inserted.data[0]["id"]
 
 
-RESERVED_HANDLES = frozenset({"mcp"})
+RESERVED_HANDLES = frozenset({"mcp", "api"})
 
 
 def account_by_handle(handle: str) -> dict | None:

@@ -28,14 +28,13 @@ from starlette.applications import Starlette
 from starlette.routing import Host, Mount
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from server.db import (
-    generate_pin,
-    generate_session_token,
-    get_role_id_from_token,
-    get_role_position,
-    resolve_position_url,
-    session_expiry,
-    supabase,
+from server.tool_impls import (
+    tool_auth_with_pin_impl,
+    tool_claim_role_impl,
+    tool_list_inbox_impl,
+    tool_mark_read_impl,
+    tool_read_memo_impl,
+    tool_send_memo_impl,
 )
 
 mcp = FastMCP(
@@ -85,42 +84,20 @@ async def claim_role(
         dict with: challenge_id (str), expires_at (ISO-8601 str),
         message (instruction for the AI to relay to the user).
     """
-    role_id, _resolved_email, role_name = resolve_position_url(position_url)
-    pin = generate_pin()
-
-    result = (
-        supabase()
-        .table("pin_challenges")
-        .insert(
-            {
-                "role_id": role_id,
-                "pin": pin,
-                "client_session_id": ctx.session_id or "",
-                "claim_what": claim_what,
-            }
-        )
-        .execute()
+    return await tool_claim_role_impl(
+        position_url=position_url,
+        claim_what=claim_what,
+        client_session_id=ctx.session_id or "",
     )
-    row = result.data[0]
-    return {
-        "challenge_id": row["id"],
-        "expires_at": row["expires_at"],
-        "message": (
-            f"Tell the user: openbraid is requesting access as "
-            f"'{role_name}' ({claim_what}). Ask them to read the 9-digit "
-            f"PIN from their openbraid panel and give it to you, then "
-            f"call auth_with_pin."
-        ),
-    }
 
 
 @mcp.tool()
 async def auth_with_pin(challenge_id: str, pin: str, ctx: Context) -> dict:
     """Complete a role-claim ceremony by presenting the one-time PIN.
 
-    Validates the PIN against the outstanding challenge atomically (single
-    UPDATE with all preconditions in WHERE), burns it on success, and
-    issues a session token bound to the originating MCP session.
+    The returned session_token is transport-agnostic — works as the
+    MCP session credential AND as a REST Authorization Bearer token
+    on `/api/...` endpoints. Same token; same lifecycle; 24h expiry.
 
     Args:
         challenge_id: The id returned from a prior `claim_role` call.
@@ -132,42 +109,11 @@ async def auth_with_pin(challenge_id: str, pin: str, ctx: Context) -> dict:
         dict with: session_token (str), expires_at (ISO-8601 str),
         role (str — the role name now authenticated).
     """
-    pin = "".join(pin.split())
-    burn = (
-        supabase()
-        .table("pin_challenges")
-        .update({"used_at": "now()"})
-        .eq("id", challenge_id)
-        .eq("pin", pin)
-        .is_("used_at", "null")
-        .gt("expires_at", "now()")
-        .execute()
+    return await tool_auth_with_pin_impl(
+        challenge_id=challenge_id,
+        pin=pin,
+        client_session_id=ctx.session_id or "",
     )
-    if not burn.data:
-        raise ValueError("Invalid, expired, or already-used PIN")
-    role_id = burn.data[0]["role_id"]
-
-    token = generate_session_token()
-    expiry = session_expiry()
-    inserted = (
-        supabase()
-        .table("auth_sessions")
-        .insert(
-            {
-                "role_id": role_id,
-                "session_token": token,
-                "client_session_id": ctx.session_id or "",
-                "expires_at": expiry,
-            }
-        )
-        .execute()
-    )
-    role_name = get_role_position(role_id)
-    return {
-        "session_token": token,
-        "expires_at": inserted.data[0]["expires_at"],
-        "role": role_name,
-    }
 
 
 @mcp.tool()
@@ -193,97 +139,34 @@ async def send_memo(
 
     2. **Memo-to-file** (`to_role` = `"file"`, the memodef v0.3 sentinel):
        The memo is filed under the authenticated role's notes folder
-       for accumulated context. No per-recipient processing event;
-       successive incumbents of the role read the notes to inherit
-       context. Per memodef v0.3, `action_required=true` is rejected for
-       memos-to-file (a filed-for-record memo has no recipient to act).
+       for accumulated context. Per memodef v0.3, `action_required=true`
+       is rejected for memos-to-file.
 
     Args:
         session_token: From a successful `auth_with_pin`.
         to_role: Recipient role name within the same account, OR the
-            literal string `"file"` to file a memo-to-file under the
-            authenticated role's notes folder.
+            literal string `"file"` for a memo-to-file.
         subject: Short memo subject.
         body: Memo body text.
         body_ref: Optional pointer to a longer-form body file.
         action_required: Whether the memo requires a response. MUST be
-            false (the default) when `to_role="file"`.
+            false when `to_role="file"`.
         in_reply_to: Optional reference to the memo this replies to.
-        thread_id: Optional thread identifier for multi-memo conversations.
+        thread_id: Optional thread identifier.
 
     Returns:
-        dict with: memo_id (str), sent_at (ISO-8601 str), kind (str —
-        either "inbox" for directed memos or "note" for memos-to-file).
+        dict with: memo_id (str), sent_at (ISO-8601 str), kind (str).
     """
-    sender_role_id = get_role_id_from_token(session_token)
-    sender_position = get_role_position(sender_role_id)
-
-    if to_role == "file":
-        # memodef v0.3 memo-to-file: filed under the authenticated role's
-        # notes folder, not directed at any recipient.
-        if action_required:
-            raise ValueError(
-                "memo-to-file (to_role='file') cannot be combined with "
-                "action_required=true: a memo filed for the role's record "
-                "has no recipient to act on it"
-            )
-        target_role_id = sender_role_id
-        kind = "note"
-    else:
-        # Directed memo to a sibling role within the same account.
-        sender_account = (
-            supabase()
-            .table("roles")
-            .select("account_id")
-            .eq("id", sender_role_id)
-            .execute()
-        )
-        account_id = sender_account.data[0]["account_id"]
-
-        recipient = (
-            supabase()
-            .table("roles")
-            .select("id")
-            .eq("account_id", account_id)
-            .eq("name", to_role)
-            .is_("deleted_at", "null")
-            .execute()
-        )
-        if not recipient.data:
-            raise ValueError(
-                f"No role '{to_role}' found in this account (v0 cross-account "
-                f"routing is not supported; use 'file' to file a memo-to-file "
-                f"in your own role's notes folder)"
-            )
-        target_role_id = recipient.data[0]["id"]
-        kind = "inbox"
-
-    inserted = (
-        supabase()
-        .table("memos")
-        .insert(
-            {
-                "role_id": target_role_id,
-                "from_position": sender_position,
-                "to_position": to_role,
-                "subject": subject,
-                "body": body,
-                "body_ref": body_ref,
-                "sent_at": "now()",
-                "action_required": action_required,
-                "in_reply_to": in_reply_to,
-                "thread_id": thread_id,
-                "status": "inbox" if kind == "inbox" else "archived",
-                "kind": kind,
-            }
-        )
-        .execute()
+    return await tool_send_memo_impl(
+        session_token=session_token,
+        to_role=to_role,
+        subject=subject,
+        body=body,
+        body_ref=body_ref,
+        action_required=action_required,
+        in_reply_to=in_reply_to,
+        thread_id=thread_id,
     )
-    return {
-        "memo_id": inserted.data[0]["id"],
-        "sent_at": inserted.data[0]["sent_at"],
-        "kind": kind,
-    }
 
 
 @mcp.tool()
@@ -295,17 +178,6 @@ async def list_inbox(
 ) -> dict:
     """List memos in the authenticated role's mailbox or notes folder.
 
-    Two modes via the `folder` argument:
-
-    - `folder=None` (default): list directed-memo mailbox (kind='inbox').
-      The `status` filter applies in this mode.
-    - `folder="notes"`: list memos-to-file filed under the authenticated
-      role's accumulated context (kind='note', per memodef v0.3). The
-      `status` filter is ignored — notes have no maildir lifecycle.
-
-    Cross-role notes access (`folder="notes/<other-role>"`) is out of
-    scope for v0; deferred per memodef v0.3 decision Q4.
-
     Args:
         session_token: From a successful `auth_with_pin`.
         status: One of "inbox", "read", "archived". Defaults to "inbox".
@@ -315,85 +187,33 @@ async def list_inbox(
             "notes" for the authenticated role's notes folder.
 
     Returns:
-        dict with: memos (list of summaries — id, from_position,
-        subject, sent_at, action_required, thread_id).
+        dict with: memos (list of summaries).
     """
-    role_id = get_role_id_from_token(session_token)
-
-    if folder == "notes":
-        result = (
-            supabase()
-            .table("memos")
-            .select(
-                "id, from_position, subject, sent_at, action_required, thread_id"
-            )
-            .eq("role_id", role_id)
-            .eq("kind", "note")
-            .is_("deleted_at", "null")
-            .order("sent_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
-        return {"memos": result.data}
-
-    if folder not in (None, "inbox"):
-        raise ValueError(
-            f"folder must be None, 'inbox', or 'notes'; got {folder!r}"
-        )
-    if status not in {"inbox", "read", "archived"}:
-        raise ValueError(
-            f"status must be inbox|read|archived, got {status!r}"
-        )
-    result = (
-        supabase()
-        .table("memos")
-        .select(
-            "id, from_position, subject, sent_at, action_required, thread_id"
-        )
-        .eq("role_id", role_id)
-        .eq("kind", "inbox")
-        .eq("status", status)
-        .is_("deleted_at", "null")
-        .order("sent_at", desc=True)
-        .limit(limit)
-        .execute()
+    return await tool_list_inbox_impl(
+        session_token=session_token,
+        status=status,
+        limit=limit,
+        folder=folder,
     )
-    return {"memos": result.data}
 
 
 @mcp.tool()
 async def read_memo(session_token: str, memo_id: str) -> dict:
     """Read the full content of a memo by id.
 
-    Does NOT mark the memo read; call `mark_read` separately. Reading and
-    acknowledging are distinct operations so an AI can preview content
-    without committing to "I've handled this."
+    Does NOT mark the memo read; call `mark_read` separately.
 
     Args:
         session_token: From a successful `auth_with_pin`.
         memo_id: The id of the memo to retrieve.
 
     Returns:
-        dict with the full memodef:Memo shape plus status.
+        dict with the full memodef:Memo shape plus status and kind.
     """
-    role_id = get_role_id_from_token(session_token)
-    result = (
-        supabase()
-        .table("memos")
-        .select(
-            "id, from_position, to_position, subject, body, body_ref, "
-            "sent_at, action_required, in_reply_to, thread_id, status, kind"
-        )
-        .eq("id", memo_id)
-        .eq("role_id", role_id)
-        .is_("deleted_at", "null")
-        .execute()
+    return await tool_read_memo_impl(
+        session_token=session_token,
+        memo_id=memo_id,
     )
-    if not result.data:
-        raise ValueError(
-            f"Memo {memo_id} not found in this role's mailbox"
-        )
-    return result.data[0]
 
 
 @mcp.tool()
@@ -407,21 +227,11 @@ async def mark_read(session_token: str, memo_id: str) -> dict:
     Returns:
         dict with: ok (bool), status (str — the new status).
     """
-    role_id = get_role_id_from_token(session_token)
-    result = (
-        supabase()
-        .table("memos")
-        .update({"status": "read"})
-        .eq("id", memo_id)
-        .eq("role_id", role_id)
-        .is_("deleted_at", "null")
-        .execute()
+    return await tool_mark_read_impl(
+        session_token=session_token,
+        memo_id=memo_id,
     )
-    if not result.data:
-        raise ValueError(
-            f"Memo {memo_id} not found in this role's mailbox"
-        )
-    return {"ok": True, "status": result.data[0]["status"]}
+
 
 
 # --- HTTP host: per-domain routing -----------------------------------------
@@ -468,6 +278,7 @@ class _LegacyMCPPathRewriter:
 
 from server.boot_url import boot_url_routes  # noqa: E402
 from server.panel import panel_routes  # noqa: E402
+from server.rest_api import api as _rest_api  # noqa: E402
 
 _panel_app = Starlette(routes=panel_routes)
 
@@ -480,6 +291,10 @@ _panel_app = Starlette(routes=panel_routes)
 # handle gate in server.boot_url._account_by_handle).
 _mcp_host_inner = Starlette(
     routes=[
+        # REST + OpenAPI under /api/... (Phase D D1): mounted FIRST so
+        # the /{account} pattern can't shadow it. "api" is reserved in
+        # _account_by_handle as additional defense in depth.
+        Mount("/api", app=_rest_api),
         *boot_url_routes,
         Mount("/", app=_mcp_app),
     ]
@@ -497,6 +312,7 @@ app = Starlette(
         # returns JSON 404. For local MCP testing, hit `/` directly
         # (FastMCP's bare endpoint) — the legacy /mcp URL is only
         # rewired on the production mcp.openbraid.app host.
+        Mount("/api", app=_rest_api),
         *panel_routes,
         *boot_url_routes,
         Mount("/", app=_mcp_app),

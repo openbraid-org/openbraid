@@ -87,9 +87,9 @@ async def test_send_memo_to_file_rejects_action_required():
     from server import main as server_main
 
     client = _build_supabase_with_role()
-    with patch("server.main.supabase", return_value=client), \
-         patch("server.main.get_role_id_from_token", return_value="role-uuid-123"), \
-         patch("server.main.get_role_position", return_value="personal-strategist"):
+    with patch("server.tool_impls.supabase", return_value=client), \
+         patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid-123"), \
+         patch("server.tool_impls.get_role_position", return_value="personal-strategist"):
         with pytest.raises(ValueError, match="memo-to-file.*action_required"):
             await server_main.send_memo(
                 session_token="tok",
@@ -106,9 +106,9 @@ async def test_send_memo_to_file_stores_with_kind_note_under_authenticated_role(
     from server import main as server_main
 
     client = _build_supabase_with_role()
-    with patch("server.main.supabase", return_value=client), \
-         patch("server.main.get_role_id_from_token", return_value="role-uuid-123"), \
-         patch("server.main.get_role_position", return_value="personal-strategist"):
+    with patch("server.tool_impls.supabase", return_value=client), \
+         patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid-123"), \
+         patch("server.tool_impls.get_role_position", return_value="personal-strategist"):
         result = await server_main.send_memo(
             session_token="tok",
             to_role="file",
@@ -179,9 +179,9 @@ async def test_send_memo_directed_still_uses_kind_inbox():
         {"id": "memo-uuid", "sent_at": "2026-05-10T15:00:00Z"}
     ]
 
-    with patch("server.main.supabase", return_value=client), \
-         patch("server.main.get_role_id_from_token", return_value="sender-id"), \
-         patch("server.main.get_role_position", return_value="personal-strategist"):
+    with patch("server.tool_impls.supabase", return_value=client), \
+         patch("server.tool_impls.get_role_id_from_token", return_value="sender-id"), \
+         patch("server.tool_impls.get_role_position", return_value="personal-strategist"):
         result = await server_main.send_memo(
             session_token="tok",
             to_role="brother-desktop",
@@ -203,8 +203,8 @@ async def test_list_inbox_folder_notes_filters_by_kind_note():
     from server import main as server_main
 
     client = _build_supabase_with_role()
-    with patch("server.main.supabase", return_value=client), \
-         patch("server.main.get_role_id_from_token", return_value="role-uuid-123"):
+    with patch("server.tool_impls.supabase", return_value=client), \
+         patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid-123"):
         result = await server_main.list_inbox(
             session_token="tok",
             folder="notes",
@@ -223,7 +223,7 @@ async def test_list_inbox_rejects_unknown_folder():
     """folder must be one of None/'inbox'/'notes'."""
     from server import main as server_main
 
-    with patch("server.main.get_role_id_from_token", return_value="role-uuid-123"):
+    with patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid-123"):
         with pytest.raises(ValueError, match="folder must be"):
             await server_main.list_inbox(
                 session_token="tok",
