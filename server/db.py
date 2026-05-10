@@ -87,6 +87,35 @@ def get_role_position(role_id: str) -> str:
     return result.data[0]["name"]
 
 
+def ensure_personal_org(account_id: str) -> str:
+    """Idempotently ensure the account has a 'personal' org and return its id.
+
+    Phase C introduced orgs as the layer between accounts and roles (per
+    OAGP canonical addressing). Each account gets a default 'personal'
+    org during migration 0004; this helper covers the edge case where
+    a fresh account was created post-migration without one. Cheap when
+    the org already exists (one SELECT); only writes on miss.
+    """
+    existing = (
+        supabase()
+        .table("orgs")
+        .select("id")
+        .eq("account_id", account_id)
+        .eq("name", "personal")
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    if existing.data:
+        return existing.data[0]["id"]
+    inserted = (
+        supabase()
+        .table("orgs")
+        .insert({"account_id": account_id, "name": "personal"})
+        .execute()
+    )
+    return inserted.data[0]["id"]
+
+
 def ensure_account(email: str, auth_user_id: str) -> str:
     """Idempotently ensure an `accounts` row exists for the given email.
 

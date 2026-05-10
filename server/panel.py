@@ -35,7 +35,7 @@ from server.auth import (
     sign_in_with_password,
     sign_up_with_password,
 )
-from server.db import ensure_account, supabase
+from server.db import ensure_account, ensure_personal_org, supabase
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -419,10 +419,16 @@ async def roles_create(request: Request):
             status_code=303,
         )
 
+    # Phase C: every role is parented under an org. v0 default is the
+    # account's 'personal' org (auto-migrated for existing accounts;
+    # ensured-on-the-fly for fresh ones).
+    org_id = ensure_personal_org(account_id)
+
     try:
         supabase().table("roles").insert(
             {
                 "account_id": account_id,
+                "org_id": org_id,
                 "name": name,
                 "roledef_url": roledef_url,
             }
@@ -430,7 +436,7 @@ async def roles_create(request: Request):
     except Exception as e:  # noqa: BLE001 — present as a form error
         msg = str(e)
         if "duplicate" in msg.lower() or "unique" in msg.lower():
-            friendly = f"A role named '{name}' already exists in your account"
+            friendly = f"A role named '{name}' already exists in your personal org"
         else:
             friendly = f"Could not create role: {msg[:200]}"
         # Use + for spaces in query params; the browser decodes them.
