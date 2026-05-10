@@ -33,7 +33,7 @@ from server.db import (
     generate_session_token,
     get_role_id_from_token,
     get_role_position,
-    resolve_role_by_name,
+    resolve_position_url,
     session_expiry,
     supabase,
 )
@@ -52,24 +52,28 @@ mcp = FastMCP(
 
 @mcp.tool()
 async def claim_role(
-    role_name: str,
-    account_email: str,
+    position_url: str,
     ctx: Context,
     claim_what: str = "read+write memos",
 ) -> dict:
     """Begin a role-claim ceremony.
 
-    Generates a 9-digit one-time PIN and writes it to the pin_challenges
-    table. The human gatekeeper retrieves the PIN out-of-band (web panel
-    in v1; Supabase table editor for v0) and reads it back to the AI,
-    which then calls `auth_with_pin`.
+    Pass a canonical OAGP position URL — three-segment form
+    (`/account/org/position`) or two-segment sugar
+    (`/account/position`, when the account hosts exactly one org).
+    Full URLs with scheme, host-only forms, and bare paths all
+    accepted; the parser strips scheme + host and works on the path.
+
+    Generates a 9-digit one-time PIN written to pin_challenges. The
+    human gatekeeper retrieves the PIN out-of-band (web panel) and
+    reads it back to the AI, which calls auth_with_pin to complete.
 
     Args:
-        role_name: The role being claimed (e.g. "personal-strategist").
-            Must exist under the given account.
-        account_email: Google email of the account that owns the role.
-            Required because role names are unique per-account, not
-            globally — this disambiguates which X is being claimed.
+        position_url: Canonical position URL per OAGP addressing
+            (orgdef-spec ba004ca). Examples:
+              "https://mcp.openbraid.app/scott/personal/personal-strategist"
+              "https://mcp.openbraid.app/scott/personal-strategist"
+              "/scott/personal/personal-strategist"
         claim_what: Human-readable description of what's being authorized,
             shown in the panel so the user knows what they're approving.
             Defaults to "read+write memos".
@@ -78,7 +82,7 @@ async def claim_role(
         dict with: challenge_id (str), expires_at (ISO-8601 str),
         message (instruction for the AI to relay to the user).
     """
-    role_id = resolve_role_by_name(account_email, role_name)
+    role_id, _resolved_email, role_name = resolve_position_url(position_url)
     pin = generate_pin()
 
     result = (
