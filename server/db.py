@@ -315,34 +315,3 @@ def resolve_position_url(url: str) -> tuple[str, str, str]:
     return position["id"], account["email"], position["name"]
 
 
-def resolve_role_by_name(account_email: str, role_name: str) -> str:
-    """Return role_id for (account_email, role_name).
-
-    Raises ValueError if either the account or the role is missing.
-    """
-    account = (
-        supabase()
-        .table("accounts")
-        .select("id")
-        .eq("email", account_email)
-        .is_("deleted_at", "null")
-        .execute()
-    )
-    if not account.data:
-        raise ValueError(f"No account found for {account_email}")
-    account_id = account.data[0]["id"]
-
-    role = (
-        supabase()
-        .table("roles")
-        .select("id")
-        .eq("account_id", account_id)
-        .eq("name", role_name)
-        .is_("deleted_at", "null")
-        .execute()
-    )
-    if not role.data:
-        raise ValueError(
-            f"No role '{role_name}' found for account {account_email}"
-        )
-    return role.data[0]["id"]

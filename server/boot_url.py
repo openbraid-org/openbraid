@@ -41,6 +41,18 @@ from server.db import (
 )
 
 
+def _canonical_position_url(
+    request: Request, handle: str, org_name: str, position_name: str
+) -> str:
+    """Build the canonical position URL from the current request's host.
+
+    Self-hosted instances (mcp.firstchurch.org, etc.) get their own host
+    in the URL; openbraid.app gets mcp.openbraid.app. The scheme follows
+    the request scheme (https in production, http in dev).
+    """
+    return f"{request.url.scheme}://{request.url.netloc}/{handle}/{org_name}/{position_name}"
+
+
 def _positions_for_org(org_id: str) -> list[dict]:
     """Return positions (roles) within an org.
 
@@ -63,7 +75,7 @@ def _positions_for_org(org_id: str) -> list[dict]:
 
 
 def _build_boot_payload(
-    account: dict, org: dict, position: dict
+    account: dict, org: dict, position: dict, canonical_url: str | None = None
 ) -> dict:
     """Build the C4 boot payload for a fresh-agent instantiation.
 
@@ -137,11 +149,11 @@ def _build_boot_payload(
         },
         "claim_instruction": (
             f"To claim this seat: call openbraid's `claim_role` MCP tool with "
-            f"role_name=\"{position['name']}\" and account_email=\"{account['email']}\". "
-            f"You will receive a challenge_id; the human gatekeeper delivers a "
-            f"9-digit PIN out-of-band (via the openbraid panel); call `auth_with_pin` "
-            f"with the challenge_id and PIN to complete the claim. Subsequent tool "
-            f"calls use the returned session_token."
+            f"position_url=\"{canonical_url}\". You will receive a challenge_id; "
+            f"the human gatekeeper delivers a 9-digit PIN out-of-band (via the "
+            f"openbraid panel); call `auth_with_pin` with the challenge_id and "
+            f"PIN to complete the claim. Subsequent tool calls use the returned "
+            f"session_token."
         ),
     }
 
@@ -200,7 +212,12 @@ async def account_seg2_endpoint(request: Request) -> JSONResponse:
                 {"error": "position not found in account's only org"},
                 status_code=404,
             )
-        return JSONResponse(_build_boot_payload(account, org, position))
+        canonical_url = _canonical_position_url(
+            request, handle, org["name"], position["name"]
+        )
+        return JSONResponse(
+            _build_boot_payload(account, org, position, canonical_url)
+        )
 
     # Multi-org case: seg2 is an org name; return positions list.
     org = org_by_name(account["id"], seg2)
@@ -252,7 +269,12 @@ async def position_boot_endpoint(request: Request) -> JSONResponse:
     if not position:
         return JSONResponse({"error": "position not found"}, status_code=404)
 
-    return JSONResponse(_build_boot_payload(account, org, position))
+    canonical_url = _canonical_position_url(
+        request, handle, org_name, position_name
+    )
+    return JSONResponse(
+        _build_boot_payload(account, org, position, canonical_url)
+    )
 
 
 boot_url_routes = [

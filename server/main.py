@@ -34,7 +34,6 @@ from server.db import (
     get_role_id_from_token,
     get_role_position,
     resolve_position_url,
-    resolve_role_by_name,
     session_expiry,
     supabase,
 )
@@ -53,38 +52,28 @@ mcp = FastMCP(
 
 @mcp.tool()
 async def claim_role(
+    position_url: str,
     ctx: Context,
-    position_url: str | None = None,
-    role_name: str | None = None,
-    account_email: str | None = None,
     claim_what: str = "read+write memos",
 ) -> dict:
     """Begin a role-claim ceremony.
 
-    Two input forms accepted (use whichever the AI client has handy):
+    Pass a canonical OAGP position URL — three-segment form
+    (`/account/org/position`) or two-segment sugar
+    (`/account/position`, when the account hosts exactly one org).
+    Full URLs with scheme, host-only forms, and bare paths all
+    accepted; the parser strips scheme + host and works on the path.
 
-      1. **Position URL** (preferred, OAGP canonical addressing):
-         pass `position_url` like
-         "https://mcp.openbraid.app/scott/personal/personal-strategist"
-         or the two-segment sugar
-         "https://mcp.openbraid.app/scott/personal-strategist".
-         Bare paths and host-only forms also accepted.
-
-      2. **Name + email** (v0 backward-compat): pass both `role_name`
-         and `account_email`. Equivalent to the prior form.
-
-    Either form generates a 9-digit one-time PIN written to
-    pin_challenges. The human gatekeeper retrieves the PIN out-of-band
-    (web panel) and reads it back to the AI, which calls auth_with_pin.
+    Generates a 9-digit one-time PIN written to pin_challenges. The
+    human gatekeeper retrieves the PIN out-of-band (web panel) and
+    reads it back to the AI, which calls auth_with_pin to complete.
 
     Args:
         position_url: Canonical position URL per OAGP addressing
-            (orgdef-spec ba004ca). Either this OR (role_name +
-            account_email) must be provided.
-        role_name: The role being claimed (e.g. "personal-strategist").
-            Required when `position_url` is not provided.
-        account_email: Google email of the account that owns the role.
-            Required when `position_url` is not provided.
+            (orgdef-spec ba004ca). Examples:
+              "https://mcp.openbraid.app/scott/personal/personal-strategist"
+              "https://mcp.openbraid.app/scott/personal-strategist"
+              "/scott/personal/personal-strategist"
         claim_what: Human-readable description of what's being authorized,
             shown in the panel so the user knows what they're approving.
             Defaults to "read+write memos".
@@ -93,20 +82,7 @@ async def claim_role(
         dict with: challenge_id (str), expires_at (ISO-8601 str),
         message (instruction for the AI to relay to the user).
     """
-    if position_url:
-        role_id, resolved_email, resolved_name = resolve_position_url(position_url)
-        # Use the resolved values for the PIN-ceremony message text below.
-        # Don't error if role_name/account_email were ALSO passed; the URL wins.
-        role_name = resolved_name
-        account_email = resolved_email
-    elif role_name and account_email:
-        role_id = resolve_role_by_name(account_email, role_name)
-    else:
-        raise ValueError(
-            "claim_role requires either `position_url`, OR both `role_name` "
-            "and `account_email`. Got neither."
-        )
-
+    role_id, _resolved_email, role_name = resolve_position_url(position_url)
     pin = generate_pin()
 
     result = (

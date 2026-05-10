@@ -15,12 +15,10 @@ import pytest
 
 EXPECTED_TOOLS: dict[str, dict[str, set[str]]] = {
     "claim_role": {
-        # Phase C C5 made claim_role's inputs all-optional at the schema
-        # level — either `position_url` OR (`role_name` + `account_email`)
-        # is required at runtime, but the tool surface advertises them
-        # all as optional. Runtime ValueError on neither-provided.
-        "required": set(),
-        "optional": {"position_url", "role_name", "account_email", "claim_what"},
+        # Phase C C5 simplified to URL-only (single user; clean break
+        # from the v0 name+email form per Director's call 2026-05-10).
+        "required": {"position_url"},
+        "optional": {"claim_what"},
     },
     "auth_with_pin": {
         "required": {"challenge_id", "pin"},
