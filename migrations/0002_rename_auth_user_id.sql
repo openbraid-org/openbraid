@@ -1,0 +1,21 @@
+-- 0002_rename_auth_user_id.sql
+-- Rename accounts.google_user_id -> accounts.auth_user_id.
+--
+-- Why: the column was named for Google OAuth specifically, but openbraid
+-- now also supports email + password sign-in via Supabase Auth. Email
+-- signups currently store a placeholder value (e.g. "email-auth:<id>")
+-- in the column to satisfy NOT NULL. The column always meant "Supabase
+-- Auth user identifier"; the original name was provider-specific.
+--
+-- Application code currently never reads or writes this column (the
+-- bootstrap accounts row was inserted manually via SQL); A3 will
+-- introduce the first application-side write, against the new name.
+-- So this migration is essentially metadata-only at the wire-protocol
+-- level — no code changes needed in this PR.
+--
+-- Safety: PostgreSQL `ALTER TABLE ... RENAME COLUMN` is a metadata
+-- operation. No table rewrite. No row-level locking beyond a brief
+-- ACCESS EXCLUSIVE on the relation while the rename happens. Indexes
+-- and constraints are renamed implicitly along with the column.
+
+ALTER TABLE accounts RENAME COLUMN google_user_id TO auth_user_id;
