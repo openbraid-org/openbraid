@@ -457,21 +457,42 @@ class _LegacyMCPPathRewriter:
         await self.app(scope, receive, send)
 
 
+
+
+from server.boot_url import boot_url_routes  # noqa: E402
 from server.panel import panel_routes  # noqa: E402
 
 _panel_app = Starlette(routes=panel_routes)
-_mcp_with_legacy = _LegacyMCPPathRewriter(_mcp_app)
+
+# mcp.openbraid.app inner stack: boot URL routes for /{account},
+# /{account}/{seg2}, /{account}/{org}/{position}, then a catch-all
+# Mount that sends bare / to FastMCP. The whole stack is wrapped in
+# _LegacyMCPPathRewriter so /mcp gets rewritten to / before routing
+# happens — boot_url's /{account} pattern would otherwise match /mcp
+# with account="mcp" and short-circuit to 404 (per the reserved-
+# handle gate in server.boot_url._account_by_handle).
+_mcp_host_inner = Starlette(
+    routes=[
+        *boot_url_routes,
+        Mount("/", app=_mcp_app),
+    ]
+)
+_mcp_host_app = _LegacyMCPPathRewriter(_mcp_host_inner)
 
 app = Starlette(
     routes=[
         # Production hosts: hard split.
-        Host("mcp.openbraid.app", app=_mcp_with_legacy),
+        Host("mcp.openbraid.app", app=_mcp_host_app),
         Host("www.openbraid.app", app=_panel_app),
-        # Fallback for unmatched hosts (localhost dev, *.up.railway.app, IPs):
-        # keep the v0 combined layout so existing dev workflows + the bare
-        # Railway-assigned hostname continue to work.
+        # Fallback for unmatched hosts (localhost dev, *.up.railway.app,
+        # IPs): combined layout. /mcp on the fallback hits the boot URL
+        # /{account} pattern with handle="mcp" → reserved-handle gate
+        # returns JSON 404. For local MCP testing, hit `/` directly
+        # (FastMCP's bare endpoint) — the legacy /mcp URL is only
+        # rewired on the production mcp.openbraid.app host.
         *panel_routes,
-        Mount("/", app=_mcp_with_legacy),
+        *boot_url_routes,
+        Mount("/", app=_mcp_app),
     ],
     lifespan=_lifespan,
 )
