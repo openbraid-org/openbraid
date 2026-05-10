@@ -324,8 +324,17 @@
                     <div class="role-meta">
                         created {{ r.created_at[:10] }}{% if r.roledef_url %} · roledef: <a href="{{ r.roledef_url }}" style="color: var(--muted)" target="_blank">{{ r.roledef_url[:40] }}{% if r.roledef_url|length > 40 %}…{% endif %}</a>{% endif %}
                     </div>
-                    <div style="margin-top: 0.5rem;">
+                    <div style="margin-top: 0.4rem; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 0.75rem; color: var(--muted); user-select: all;">
+                        {{ r.canonical_url }}
+                    </div>
+                    <div style="margin-top: 0.6rem; display: flex; gap: 0.6rem; align-items: center;">
                         <a href="/panel/roles/{{ r.id }}/notes" style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600;">Notes →</a>
+                        <button
+                            type="button"
+                            class="copy-prompt-btn"
+                            data-prompt="{{ r.recommended_prompt }}"
+                            style="background: transparent; color: var(--muted); border: 1px solid var(--border); padding: 0.3rem 0.7rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.8rem; font-family: inherit;"
+                        >📋 Copy prompt</button>
                     </div>
                 </div>
                 <div class="access-cell">
@@ -387,6 +396,27 @@
     document.querySelectorAll('[data-iso]').forEach(function (el) {
         el.textContent = relTime(el.dataset.iso);
         el.title = el.dataset.iso;
+    });
+    // Copy-prompt buttons: click to put the recommended one-line
+    // instantiation prompt on the clipboard, with brief feedback.
+    document.querySelectorAll('.copy-prompt-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var prompt = btn.dataset.prompt || '';
+            navigator.clipboard.writeText(prompt).then(function () {
+                var original = btn.textContent;
+                btn.textContent = '✓ Copied';
+                btn.style.color = 'var(--accent)';
+                btn.style.borderColor = 'var(--accent)';
+                setTimeout(function () {
+                    btn.textContent = original;
+                    btn.style.color = '';
+                    btn.style.borderColor = '';
+                }, 1500);
+            }).catch(function (err) {
+                btn.textContent = '✗ failed';
+                console.error('clipboard write failed', err);
+            });
+        });
     });
     </script>
 </body>

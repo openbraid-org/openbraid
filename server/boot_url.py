@@ -56,11 +56,20 @@ def _canonical_position_url(
 def _positions_for_org(org_id: str) -> list[dict]:
     """Return positions (roles) within an org.
 
-    Phase C C3 calls for depth-first ordering via the orgdef artifact's
-    relationships. v0 doesn't store relationships yet, so this falls
-    back to the ordering rule the orgdef memo specifies for the
-    ambiguous case: the `positions` array order, which we approximate
-    by created_at asc (the order they were added).
+    Phase C C3 (full implementation) calls for depth-first walk via
+    `reports_to` / `directs` / `validates_for` edges drawn from the
+    orgdef artifact's relationships. openbraid v0/v1 doesn't store
+    those relationships — orgs and positions are stored, edges are
+    not. So this falls back to the ordering rule the orgdef memo
+    specifies as the documented fallback for the ambiguous-relationships
+    case: the `positions` array order, which we approximate by
+    `created_at` asc (the order they were added to the table).
+
+    When openbraid eventually grows relationship storage (a separate
+    `position_relationships` table or a JSONB field on orgs), this
+    function should be replaced with a real DFS over the edges,
+    falling back to created_at when a position has no edges or the
+    walk is ambiguous.
     """
     result = (
         supabase()
@@ -132,6 +141,7 @@ def _build_boot_payload(
             "vision": org.get("vision"),
             "scope": org.get("scope"),
             "governance_model": org.get("governance_model"),
+            "org_location": org.get("org_location"),
         },
         "role_definition": (
             {"url": position["roledef_url"]}

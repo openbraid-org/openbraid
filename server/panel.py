@@ -16,6 +16,7 @@ Routes:
 
 from __future__ import annotations
 
+import os
 import secrets
 from pathlib import Path
 
@@ -35,7 +36,29 @@ from server.auth import (
     sign_in_with_password,
     sign_up_with_password,
 )
-from server.db import ensure_account, ensure_personal_org, supabase
+from server.db import (
+    ensure_account,
+    ensure_personal_org,
+    orgs_for_account,
+    supabase,
+)
+
+
+def _mcp_origin() -> str:
+    """Return the public MCP origin used for canonical position URLs.
+
+    Reads MCP_ORIGIN env var; falls back to deriving from PANEL_ORIGIN
+    by replacing the leading `www.` with `mcp.` (the openbraid.app
+    convention). Self-hosted instances should set MCP_ORIGIN explicitly
+    if their MCP host doesn't follow that pattern.
+    """
+    explicit = os.environ.get("MCP_ORIGIN")
+    if explicit:
+        return explicit.rstrip("/")
+    panel = os.environ.get("PANEL_ORIGIN", "")
+    if "//www." in panel:
+        return panel.replace("//www.", "//mcp.").rstrip("/")
+    return panel.rstrip("/") or "https://mcp.openbraid.app"
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -337,12 +360,19 @@ async def roles_page(request: Request):
     roles = (
         supabase()
         .table("roles")
-        .select("id, name, roledef_url, created_at")
+        .select("id, name, roledef_url, created_at, org_id")
         .eq("account_id", account_id)
         .is_("deleted_at", "null")
         .order("created_at", desc=False)
         .execute()
     )
+
+    # Build a {org_id: org_name} map so each role gets its org's name
+    # for the canonical URL + recommended-prompt template.
+    orgs = orgs_for_account(account_id)
+    org_names = {o["id"]: o["name"] for o in orgs}
+    handle = (user.get("email") or "").split("@", 1)[0] or "unknown"
+    mcp_base = _mcp_origin()
 
     enriched = []
     for role in roles.data:
@@ -364,9 +394,19 @@ async def roles_page(request: Request):
             .limit(1)
             .execute()
         )
+        org_name = org_names.get(role.get("org_id"), "personal")
+        canonical_url = f"{mcp_base}/{handle}/{org_name}/{role['name']}"
+        recommended_prompt = (
+            f"Please claim role: {canonical_url} via the openbraid mcp "
+            f"connector, and review the existing notes and memos. "
+            f"I'll deliver the PIN."
+        )
         enriched.append(
             {
                 **role,
+                "org_name": org_name,
+                "canonical_url": canonical_url,
+                "recommended_prompt": recommended_prompt,
                 "last_access": last_session.data[0]["created_at"]
                 if last_session.data
                 else None,

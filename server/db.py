@@ -182,14 +182,18 @@ def account_by_handle(handle: str) -> dict | None:
     return result.data[0] if result.data else None
 
 
+_ORG_COLUMNS = (
+    "id, name, mission, vision, scope, governance_model, "
+    "org_location, created_at"
+)
+
+
 def orgs_for_account(account_id: str) -> list[dict]:
     """Return all live orgs for the account, ordered by created_at asc."""
     result = (
         supabase()
         .table("orgs")
-        .select(
-            "id, name, mission, vision, scope, governance_model, created_at"
-        )
+        .select(_ORG_COLUMNS)
         .eq("account_id", account_id)
         .is_("deleted_at", "null")
         .order("created_at", desc=False)
@@ -203,9 +207,7 @@ def org_by_name(account_id: str, org_name: str) -> dict | None:
     result = (
         supabase()
         .table("orgs")
-        .select(
-            "id, name, mission, vision, scope, governance_model, created_at"
-        )
+        .select(_ORG_COLUMNS)
         .eq("account_id", account_id)
         .eq("name", org_name)
         .is_("deleted_at", "null")
