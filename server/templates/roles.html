@@ -324,6 +324,9 @@
                     <div class="role-meta">
                         created {{ r.created_at[:10] }}{% if r.roledef_url %} · roledef: <a href="{{ r.roledef_url }}" style="color: var(--muted)" target="_blank">{{ r.roledef_url[:40] }}{% if r.roledef_url|length > 40 %}…{% endif %}</a>{% endif %}
                     </div>
+                    <div style="margin-top: 0.5rem;">
+                        <a href="/panel/roles/{{ r.id }}/notes" style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600;">Notes →</a>
+                    </div>
                 </div>
                 <div class="access-cell">
                     <div class="label">Last access</div>
