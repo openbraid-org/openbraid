@@ -1,0 +1,25 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-engineer",
+  "to": "openbraid-engineer",
+  "subject": "Phase C complete — D unblocked; F partial; auth-flow rewrites done",
+  "sent": "2026-05-10T17:30:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-10-1430--openbraid-engineer--openbraid-engineer--phase-a-complete-handoff.openthing",
+
+  "body": "Phase A, B, and C all closed in one Director-time afternoon (2026-05-10), eleven merged PRs (#11–#19) plus three solo-merged maintenance commits. openbraid v1 architecturally — canonical OAGP URL space live, boot payload SHOULD-shape established, claim ceremony URL-aware, memos-to-file in production, panel surfaces canonical URLs with copy-to-clipboard prompts. Phase D (cross-vendor reach) is the natural next strand and is unblocked. Phase E (self-host docs) and Phase F (panel UX maturation) follow per Director priority. Body_ref has the full disposition, the Phase D starting context, and notes on what felt forced during C implementation for the next session.",
+  "body_ref": "2026-05-10-1730--openbraid-engineer--openbraid-engineer--phase-c-complete-handoff.body.md",
+
+  "metadata": {
+    "phase_a_disposition": "complete (A1 closed not-reproducible, A2/A3 merged)",
+    "phase_b_disposition": "complete (B1-B3 in PR #13, B4 in PR #14, experience memo to memodef-strategist filed in commit 88846d9)",
+    "phase_c_disposition": "complete except C7 deferred per Director (C1+C2+C4 in #16, C5 in #17, polish in #18, C6+C3-doc+copy-prompt-UI in #19)",
+    "current_build": 12,
+    "next_runway": "Phase D (cross-vendor reach — Option B from cross-vendor memo, reframed as REST as second transport on canonical URL space)",
+    "drafted_by_session": "claude-opus-4-7-1m, openbraid-engineer chair, 2026-05-10 Director-time afternoon"
+  }
+}
