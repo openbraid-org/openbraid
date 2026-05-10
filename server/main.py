@@ -41,11 +41,14 @@ from server.db import (
 mcp = FastMCP(
     name="openbraid",
     instructions=(
-        "openbraid is a hosted memo store for stateless AI sessions. "
-        "Claim a role with `claim_role` (give the role name and the human's "
-        "Google account email), complete the inverse-sncro PIN ceremony "
-        "with `auth_with_pin`, then use the resulting session token to "
-        "`send_memo`, `list_inbox`, `read_memo`, and `mark_read`."
+        "openbraid is a hosted memo store for stateless AI sessions, "
+        "addressed via canonical OAGP position URLs of the form "
+        "`https://mcp.openbraid.app/<account>/<org>/<position>` (or the "
+        "two-segment sugar `<account>/<position>` when the account hosts "
+        "exactly one org). Claim a role with `claim_role(position_url=...)`; "
+        "complete the inverse-sncro PIN ceremony with "
+        "`auth_with_pin(challenge_id, pin)`; use the returned session_token "
+        "with `send_memo`, `list_inbox`, `read_memo`, and `mark_read`."
     ),
 )
 
@@ -513,7 +516,18 @@ def main() -> None:
         import uvicorn
 
         port = int(os.environ.get("PORT", "8000"))
-        uvicorn.run(app, host="0.0.0.0", port=port)
+        # proxy_headers=True trusts X-Forwarded-Proto / X-Forwarded-For from
+        # Railway's reverse proxy so request.url.scheme is "https" (not "http",
+        # which is the dyno-internal scheme). Critical for the canonical URL
+        # in boot payloads' claim_instruction. forwarded_allow_ips="*" because
+        # Railway doesn't expose a stable proxy IP we can pin.
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=port,
+            proxy_headers=True,
+            forwarded_allow_ips="*",
+        )
 
 
 if __name__ == "__main__":
