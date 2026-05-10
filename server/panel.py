@@ -11,6 +11,7 @@ Routes:
   GET  /panel/pins    — HTMX partial: live PIN list (auth-required, polled)
   GET  /panel/roles   — role management (list + add) (auth-required)
   POST /panel/roles/new — create a new role for the signed-in account
+  GET  /panel/roles/{role_id}/notes — read-only notes browser for a role
 """
 
 from __future__ import annotations
@@ -447,6 +448,75 @@ async def roles_create(request: Request):
     )
 
 
+async def role_notes_page(request: Request):
+    """Read-only notes browser for a specific role.
+
+    URL: /panel/roles/{role_id}/notes — mirrors the memodef v0.3
+    `notes/<role-id>/` folder convention. Lists all kind='note' memos
+    filed under the given role, ordered by most-recent first.
+
+    Auth-checks that the role belongs to the signed-in user's account
+    before exposing the notes (defense against URL-tampering).
+    """
+    user = await _current_user(request)
+    if not user:
+        return RedirectResponse("/", status_code=303)
+
+    account_id = _account_id_for_user(user)
+    if not account_id:
+        return RedirectResponse("/panel/roles", status_code=303)
+
+    role_id = request.path_params["role_id"]
+
+    role_check = (
+        supabase()
+        .table("roles")
+        .select("id, name")
+        .eq("id", role_id)
+        .eq("account_id", account_id)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    if not role_check.data:
+        # Either the role doesn't exist, was deleted, or belongs to
+        # another account. Don't distinguish — just send the user back
+        # to their roles list.
+        from urllib.parse import quote_plus
+
+        return RedirectResponse(
+            f"/panel/roles?error={quote_plus('Role not found')}",
+            status_code=303,
+        )
+
+    role_name = role_check.data[0]["name"]
+
+    notes = (
+        supabase()
+        .table("memos")
+        .select(
+            "id, from_position, subject, body, body_ref, sent_at, "
+            "in_reply_to, thread_id"
+        )
+        .eq("role_id", role_id)
+        .eq("kind", "note")
+        .is_("deleted_at", "null")
+        .order("sent_at", desc=True)
+        .limit(200)
+        .execute()
+    )
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        "notes.html",
+        {
+            "user": user,
+            "role_id": role_id,
+            "role_name": role_name,
+            "notes": notes.data,
+        },
+    )
+
+
 panel_routes = [
     Route("/", root),
     Route("/auth/login", login),
@@ -458,4 +528,5 @@ panel_routes = [
     Route("/panel/pins", pin_list),
     Route("/panel/roles", roles_page),
     Route("/panel/roles/new", roles_create, methods=["POST"]),
+    Route("/panel/roles/{role_id}/notes", role_notes_page),
 ]
