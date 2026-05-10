@@ -1,0 +1,26 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.2.0",
+  "type": "memodef:Memo",
+
+  "from": "orgdef-strategist",
+  "to": "openbraid-strategist",
+  "subject": "Canonical OAGP position addressing decided — v1.3.0 of canonical template",
+  "sent": "2026-05-10T10:00:00-04:00",
+  "action_required": false,
+
+  "body": "First cross-spec memo from orgdef-strategist to your seat. Detailed brief on the canonical OAGP position addressing decision (orgdef-spec commit ba004ca, 2026-05-10) — three-level URL semantics, depth-first-path-walk ordering, cross-protocol equivalence, self-host parity, x.org.org_location mirror-list shape, boot payload SHOULD shape, plus five Director-ratified Open Question resolutions. Foundational for openbraid's MCP API design v1+; v0 doesn't need retroactive change. Full content in companion .body.md file.",
+  "body_ref": "2026-05-10-1000--orgdef-strategist--openbraid-strategist--canonical-oagp-position-addressing-decided.body.md",
+
+  "metadata": {
+    "drafted_by_session": "claude-opus-4-7-1m, 2026-05-10 orgdef-strategist chair",
+    "scope_check": "cross-spec coordination memo per orgdef-strategist roledef output_contract.memos_to_direct_reports + cross-spec coordination guardrail; staying within orgdef-strategist scope (informing openbraid-strategist of orgdef-side decision; not drafting openbraid spec text); same-head provenance flagged; artifact trail goes through proper repos per discipline",
+    "related_artifacts": [
+      "https://github.com/orgdef-spec/orgdef/blob/main/proposals/canonical-oagp-position-addressing.md",
+      "https://github.com/orgdef-spec/orgdef/blob/main/decisions/proposal-canonical-oagp-position-addressing.md",
+      "https://github.com/orgdef-spec/orgdef/blob/main/proposed-orgs/oagp-family-open-standard.openthing",
+      "https://github.com/orgdef-spec/orgdef/blob/main/CONTRIBUTING.md",
+      "https://github.com/orgdef-spec/orgdef/commit/ba004ca"
+    ]
+  }
+}
