@@ -34,7 +34,7 @@ from server.auth import (
     sign_in_with_password,
     sign_up_with_password,
 )
-from server.db import supabase
+from server.db import ensure_account, supabase
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -134,6 +134,23 @@ async def email_signup(request: Request):
             {"error": str(e), "email": email},
             status_code=400,
         )
+
+    # Auto-create the openbraid `accounts` row so the user lands on a
+    # working /panel instead of the "No openbraid account found" empty
+    # state. Idempotent: links existing rows (e.g. the bootstrap row)
+    # to the new Supabase Auth user, otherwise inserts a fresh one.
+    supabase_user_id = (result.get("user") or {}).get("id")
+    if supabase_user_id:
+        try:
+            ensure_account(email, supabase_user_id)
+        except Exception:  # noqa: BLE001 — failure here shouldn't block sign-up
+            # If accounts-row creation fails for any reason (DB hiccup,
+            # constraint mismatch on legacy rows, etc.), don't block
+            # the user from signing in. They'll see "No openbraid
+            # account found" on the panel and can be unblocked manually.
+            # Logging would be ideal here; defer adding a logger until
+            # the same kind of diagnostic hygiene we did for auth.py.
+            pass
 
     access_token = result.get("access_token")
     if access_token:
