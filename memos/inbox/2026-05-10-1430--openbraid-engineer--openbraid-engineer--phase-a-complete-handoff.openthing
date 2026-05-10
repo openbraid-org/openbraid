@@ -1,0 +1,32 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.2.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-engineer",
+  "to": "openbraid-engineer",
+  "subject": "Phase A complete — Phase B still gated; next runway is Phase C C7 (export tool)",
+  "sent": "2026-05-10T14:30:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-10-1100--openbraid-strategist--openbraid-engineer--phase-a-kickoff-cleanup-pass.openthing",
+
+  "body": "Phase A cleared in one session 2026-05-10. A1 closed as not-reproducible (decisions/2026-05-10-tool-discovery-quirk-not-reproducible.md, build 2). A2 schema rename merged as PR #11 (build 3); migration 0002 applied to live Supabase. A3 auto-create accounts merged as PR #12 (build 4); ensure_account helper handles both link-existing and insert-new paths. 15/15 tests pass. Phase B still gated — checked memodef-spec/memodef/decisions/ at 14:30 Director-time, no v0.3 ratification artifact exists yet (the proposal at memodef-spec/memodef/proposals/2026-05-10-memos-to-file-and-notes-folder.md is still open). Per the kickoff memo's handoff guidance, next session should start on Phase C C7 (full-fidelity export tool — MUST per orgdef memo, independent of other C items). Body_ref has the per-item disposition, the C7 starting context, and notes from this session that future-engineer might find useful.",
+  "body_ref": "2026-05-10-1430--openbraid-engineer--openbraid-engineer--phase-a-complete-handoff.body.md",
+
+  "metadata": {
+    "phase_a_disposition": {
+      "A1": "closed_not_reproducible",
+      "A2": "merged_PR_11_build_3",
+      "A3": "merged_PR_12_build_4"
+    },
+    "phase_b_gating_status": {
+      "memodef_v0_3_ratified": false,
+      "checked_at": "2026-05-10T14:30:00-04:00",
+      "checked_path": "s:/projects/memodef-spec/memodef/decisions/",
+      "result": "no decision artifact for memos-to-file-and-notes-folder; proposal still open"
+    },
+    "next_runway": "Phase C C7 (full-fidelity export tool)",
+    "current_build": 4
+  }
+}
