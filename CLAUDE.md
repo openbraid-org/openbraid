@@ -41,7 +41,7 @@ Director commits as the human (their own GitHub identity).
 
 Once openbraid has a deployable artifact (server, panel, or website), maintain a visible build number in pure-integer form (`build NNN`) and increment before every deploy. Include in commit messages: `(build NNN) commit message here`. Track current value below as openbraid evolves.
 
-**Current build:** 12 (Phase C wrap-up landed 2026-05-10 ~17:00)
+**Current build:** 14 (Phase D D1 landed 2026-05-10 ~20:00; cross-vendor demo across 5 MCP-native vendors)
 
 ### Versioning (per `s:/projects/CLAUDE.md` global)
 
