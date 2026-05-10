@@ -28,7 +28,7 @@ EXPECTED_TOOLS: dict[str, dict[str, set[str]]] = {
     },
     "list_inbox": {
         "required": {"session_token"},
-        "optional": {"status", "limit"},
+        "optional": {"status", "limit", "folder"},
     },
     "read_memo": {
         "required": {"session_token", "memo_id"},

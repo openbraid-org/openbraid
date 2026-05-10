@@ -174,60 +174,89 @@ async def send_memo(
     in_reply_to: str | None = None,
     thread_id: str | None = None,
 ) -> dict:
-    """Send a memo from the authenticated role to another role's mailbox.
+    """Send a memo, either directed to a recipient role or filed for the
+    authenticated role's accumulated context.
 
-    The memo is written to the recipient role's mailbox; from_position is
-    derived from the session's role; to_role names the recipient by role
-    name within the same account (cross-account routing is out of scope
-    for v0).
+    Two modes, distinguished by `to_role`:
+
+    1. **Directed memo** (`to_role` = a sibling role's name):
+       The memo is written to the recipient role's mailbox; from_position
+       is derived from the session's role. Cross-account routing is out
+       of scope for v0 — recipient must be in the same account.
+
+    2. **Memo-to-file** (`to_role` = `"file"`, the memodef v0.3 sentinel):
+       The memo is filed under the authenticated role's notes folder
+       for accumulated context. No per-recipient processing event;
+       successive incumbents of the role read the notes to inherit
+       context. Per memodef v0.3, `action_required=true` is rejected for
+       memos-to-file (a filed-for-record memo has no recipient to act).
 
     Args:
         session_token: From a successful `auth_with_pin`.
-        to_role: Recipient role name within the same account.
+        to_role: Recipient role name within the same account, OR the
+            literal string `"file"` to file a memo-to-file under the
+            authenticated role's notes folder.
         subject: Short memo subject.
         body: Memo body text.
         body_ref: Optional pointer to a longer-form body file.
-        action_required: Whether the memo requires a response.
+        action_required: Whether the memo requires a response. MUST be
+            false (the default) when `to_role="file"`.
         in_reply_to: Optional reference to the memo this replies to.
         thread_id: Optional thread identifier for multi-memo conversations.
 
     Returns:
-        dict with: memo_id (str), sent_at (ISO-8601 str).
+        dict with: memo_id (str), sent_at (ISO-8601 str), kind (str —
+        either "inbox" for directed memos or "note" for memos-to-file).
     """
     sender_role_id = get_role_id_from_token(session_token)
     sender_position = get_role_position(sender_role_id)
 
-    sender_account = (
-        supabase()
-        .table("roles")
-        .select("account_id")
-        .eq("id", sender_role_id)
-        .execute()
-    )
-    account_id = sender_account.data[0]["account_id"]
-
-    recipient = (
-        supabase()
-        .table("roles")
-        .select("id")
-        .eq("account_id", account_id)
-        .eq("name", to_role)
-        .is_("deleted_at", "null")
-        .execute()
-    )
-    if not recipient.data:
-        raise ValueError(
-            f"No role '{to_role}' found in this account (v0 cross-account "
-            f"routing is not supported)"
+    if to_role == "file":
+        # memodef v0.3 memo-to-file: filed under the authenticated role's
+        # notes folder, not directed at any recipient.
+        if action_required:
+            raise ValueError(
+                "memo-to-file (to_role='file') cannot be combined with "
+                "action_required=true: a memo filed for the role's record "
+                "has no recipient to act on it"
+            )
+        target_role_id = sender_role_id
+        kind = "note"
+    else:
+        # Directed memo to a sibling role within the same account.
+        sender_account = (
+            supabase()
+            .table("roles")
+            .select("account_id")
+            .eq("id", sender_role_id)
+            .execute()
         )
-    recipient_role_id = recipient.data[0]["id"]
+        account_id = sender_account.data[0]["account_id"]
+
+        recipient = (
+            supabase()
+            .table("roles")
+            .select("id")
+            .eq("account_id", account_id)
+            .eq("name", to_role)
+            .is_("deleted_at", "null")
+            .execute()
+        )
+        if not recipient.data:
+            raise ValueError(
+                f"No role '{to_role}' found in this account (v0 cross-account "
+                f"routing is not supported; use 'file' to file a memo-to-file "
+                f"in your own role's notes folder)"
+            )
+        target_role_id = recipient.data[0]["id"]
+        kind = "inbox"
 
     inserted = (
         supabase()
         .table("memos")
         .insert(
             {
-                "role_id": recipient_role_id,
+                "role_id": target_role_id,
                 "from_position": sender_position,
                 "to_position": to_role,
                 "subject": subject,
@@ -237,7 +266,8 @@ async def send_memo(
                 "action_required": action_required,
                 "in_reply_to": in_reply_to,
                 "thread_id": thread_id,
-                "status": "inbox",
+                "status": "inbox" if kind == "inbox" else "archived",
+                "kind": kind,
             }
         )
         .execute()
@@ -245,6 +275,7 @@ async def send_memo(
     return {
         "memo_id": inserted.data[0]["id"],
         "sent_at": inserted.data[0]["sent_at"],
+        "kind": kind,
     }
 
 
@@ -253,23 +284,59 @@ async def list_inbox(
     session_token: str,
     status: str = "inbox",
     limit: int = 50,
+    folder: str | None = None,
 ) -> dict:
-    """List memos in the authenticated role's mailbox.
+    """List memos in the authenticated role's mailbox or notes folder.
+
+    Two modes via the `folder` argument:
+
+    - `folder=None` (default): list directed-memo mailbox (kind='inbox').
+      The `status` filter applies in this mode.
+    - `folder="notes"`: list memos-to-file filed under the authenticated
+      role's accumulated context (kind='note', per memodef v0.3). The
+      `status` filter is ignored — notes have no maildir lifecycle.
+
+    Cross-role notes access (`folder="notes/<other-role>"`) is out of
+    scope for v0; deferred per memodef v0.3 decision Q4.
 
     Args:
         session_token: From a successful `auth_with_pin`.
         status: One of "inbox", "read", "archived". Defaults to "inbox".
+            Ignored when `folder="notes"`.
         limit: Maximum memos to return. Defaults to 50.
+        folder: None or "inbox" for the directed-memo mailbox (default);
+            "notes" for the authenticated role's notes folder.
 
     Returns:
         dict with: memos (list of summaries — id, from_position,
         subject, sent_at, action_required, thread_id).
     """
+    role_id = get_role_id_from_token(session_token)
+
+    if folder == "notes":
+        result = (
+            supabase()
+            .table("memos")
+            .select(
+                "id, from_position, subject, sent_at, action_required, thread_id"
+            )
+            .eq("role_id", role_id)
+            .eq("kind", "note")
+            .is_("deleted_at", "null")
+            .order("sent_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return {"memos": result.data}
+
+    if folder not in (None, "inbox"):
+        raise ValueError(
+            f"folder must be None, 'inbox', or 'notes'; got {folder!r}"
+        )
     if status not in {"inbox", "read", "archived"}:
         raise ValueError(
             f"status must be inbox|read|archived, got {status!r}"
         )
-    role_id = get_role_id_from_token(session_token)
     result = (
         supabase()
         .table("memos")
@@ -277,6 +344,7 @@ async def list_inbox(
             "id, from_position, subject, sent_at, action_required, thread_id"
         )
         .eq("role_id", role_id)
+        .eq("kind", "inbox")
         .eq("status", status)
         .is_("deleted_at", "null")
         .order("sent_at", desc=True)
@@ -307,7 +375,7 @@ async def read_memo(session_token: str, memo_id: str) -> dict:
         .table("memos")
         .select(
             "id, from_position, to_position, subject, body, body_ref, "
-            "sent_at, action_required, in_reply_to, thread_id, status"
+            "sent_at, action_required, in_reply_to, thread_id, status, kind"
         )
         .eq("id", memo_id)
         .eq("role_id", role_id)
