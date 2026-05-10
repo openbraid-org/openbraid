@@ -32,70 +32,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from server.db import supabase
-
-
-_RESERVED_HANDLES = frozenset({"mcp"})
-
-
-def _account_by_handle(handle: str) -> dict | None:
-    """Resolve a URL handle to an `accounts` row.
-
-    v0 strategy: handle == email-localpart. Returns the first account
-    whose email begins with `handle@`. Returns None if no match or if
-    the handle is reserved (e.g., "mcp" — used by the protocol endpoint
-    on the bare host).
-    """
-    if (
-        not handle
-        or handle in _RESERVED_HANDLES
-        or "@" in handle
-        or "/" in handle
-    ):
-        return None
-    pattern = f"{handle}@%"
-    result = (
-        supabase()
-        .table("accounts")
-        .select("id, email, auth_user_id, created_at")
-        .ilike("email", pattern)
-        .is_("deleted_at", "null")
-        .limit(1)
-        .execute()
-    )
-    return result.data[0] if result.data else None
-
-
-def _orgs_for_account(account_id: str) -> list[dict]:
-    """Return all live orgs for the account, ordered by created_at asc."""
-    result = (
-        supabase()
-        .table("orgs")
-        .select(
-            "id, name, mission, vision, scope, governance_model, created_at"
-        )
-        .eq("account_id", account_id)
-        .is_("deleted_at", "null")
-        .order("created_at", desc=False)
-        .execute()
-    )
-    return result.data or []
-
-
-def _org_by_name(account_id: str, org_name: str) -> dict | None:
-    """Resolve an org by (account_id, name)."""
-    result = (
-        supabase()
-        .table("orgs")
-        .select(
-            "id, name, mission, vision, scope, governance_model, created_at"
-        )
-        .eq("account_id", account_id)
-        .eq("name", org_name)
-        .is_("deleted_at", "null")
-        .execute()
-    )
-    return result.data[0] if result.data else None
+from server.db import (
+    account_by_handle,
+    org_by_name,
+    orgs_for_account,
+    position_by_name,
+    supabase,
+)
 
 
 def _positions_for_org(org_id: str) -> list[dict]:
@@ -117,20 +60,6 @@ def _positions_for_org(org_id: str) -> list[dict]:
         .execute()
     )
     return result.data or []
-
-
-def _position_by_name(org_id: str, position_name: str) -> dict | None:
-    """Resolve a position (role) by (org_id, name)."""
-    result = (
-        supabase()
-        .table("roles")
-        .select("id, name, roledef_url, created_at, org_id, account_id")
-        .eq("org_id", org_id)
-        .eq("name", position_name)
-        .is_("deleted_at", "null")
-        .execute()
-    )
-    return result.data[0] if result.data else None
 
 
 def _build_boot_payload(
@@ -223,11 +152,11 @@ def _build_boot_payload(
 async def account_orgs_endpoint(request: Request) -> JSONResponse:
     """GET /{account} — list of orgs the account hosts."""
     handle = request.path_params["account"]
-    account = _account_by_handle(handle)
+    account = account_by_handle(handle)
     if not account:
         return JSONResponse({"error": "account not found"}, status_code=404)
 
-    orgs = _orgs_for_account(account["id"])
+    orgs = orgs_for_account(account["id"])
     return JSONResponse(
         {
             "account": {
@@ -257,15 +186,15 @@ async def account_seg2_endpoint(request: Request) -> JSONResponse:
     """
     handle = request.path_params["account"]
     seg2 = request.path_params["seg2"]
-    account = _account_by_handle(handle)
+    account = account_by_handle(handle)
     if not account:
         return JSONResponse({"error": "account not found"}, status_code=404)
 
-    orgs = _orgs_for_account(account["id"])
+    orgs = orgs_for_account(account["id"])
     if len(orgs) == 1:
         # Implicit-org case: seg2 is a position name.
         org = orgs[0]
-        position = _position_by_name(org["id"], seg2)
+        position = position_by_name(org["id"], seg2)
         if not position:
             return JSONResponse(
                 {"error": "position not found in account's only org"},
@@ -274,7 +203,7 @@ async def account_seg2_endpoint(request: Request) -> JSONResponse:
         return JSONResponse(_build_boot_payload(account, org, position))
 
     # Multi-org case: seg2 is an org name; return positions list.
-    org = _org_by_name(account["id"], seg2)
+    org = org_by_name(account["id"], seg2)
     if not org:
         return JSONResponse({"error": "org not found"}, status_code=404)
     positions = _positions_for_org(org["id"])
@@ -311,15 +240,15 @@ async def position_boot_endpoint(request: Request) -> JSONResponse:
     org_name = request.path_params["org"]
     position_name = request.path_params["position"]
 
-    account = _account_by_handle(handle)
+    account = account_by_handle(handle)
     if not account:
         return JSONResponse({"error": "account not found"}, status_code=404)
 
-    org = _org_by_name(account["id"], org_name)
+    org = org_by_name(account["id"], org_name)
     if not org:
         return JSONResponse({"error": "org not found"}, status_code=404)
 
-    position = _position_by_name(org["id"], position_name)
+    position = position_by_name(org["id"], position_name)
     if not position:
         return JSONResponse({"error": "position not found"}, status_code=404)
 
