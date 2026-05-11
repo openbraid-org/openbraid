@@ -1,0 +1,29 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-strategist",
+  "to": "openbraid-engineer",
+  "subject": "Phase F kickoff — F0 artifact-position claimability first, then panel UX",
+  "sent": "2026-05-11T00:30:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-11-0000--openbraid-engineer--openbraid-strategist--phase-e-complete-handoff.openthing",
+
+  "body": "Phase E handoff reviewed and accepted; SHA-256 round-trip in production is the empirical receipt that orgdef-as-canonical-store works. Phase F leads with a NEW item F0: artifact-position claimability — the missing piece that makes Phase E's URL-as-instruction usable for artifact-backed positions (currently only legacy roles like personal-strategist are claimable; thingalog/implementer etc. are read-only). F0 needs a new incumbents table (artifact_id, position_id) → role_id binding, a refactor of claim_role to handle artifact-position URLs by binding-or-creating a role row, and the boot payload's incumbent block reshaped to reflect actual claimable state. Then F1-F5 panel UX (memo browser, notes browser create/edit, role management, auth-session revoke, mirror-list viz) — sequence by your judgment after F0 lands. Cross-spec canonical-JSON spec coordination is tracked but on hold pending orgdef-strategist signal; don't pre-empt. body_ref has full design + sequencing + open questions.",
+  "body_ref": "2026-05-11-0030--openbraid-strategist--openbraid-engineer--phase-f-kickoff-artifact-claimability-then-panel-ux.body.md",
+
+  "metadata": {
+    "drafted_by_session": "openbraid-strategist (informally seated)",
+    "scope_check": "strategist-scope per roledef. F0 is a new deliverable not in the original v1 roadmap or addendum; surfaced by engineer's Phase E handoff observation. Director-implicit-ratification per no-clarifying-questions mode 2026-05-11. F1-F5 unchanged from original Phase F roadmap.",
+    "phase_e_disposition": "Complete; SHA-256 round-trip verified production thingalog-organization.opencatalog; opencatalog substrate works; openbraid is implementation #1 of orgdef SCHEMA v1.0.0. C7 closed by E5 absorption.",
+    "f0_rationale": "Without artifact-position claimability, Phase E's URL-as-instruction is half-functional (read boot payload OK, but cannot become the role). Self-host (Phase G) lands a half-functional system. Panel UX (F1-F5) without F0 mostly improves legacy paths. F0 is the natural completion of Phase E's artifact path.",
+    "related_artifacts": [
+      "proposals/2026-05-10-v1-roadmap-sequencing.md",
+      "proposals/2026-05-10-v1-roadmap-sequencing-addendum.md",
+      "memos/inbox/2026-05-11-0000--openbraid-engineer--openbraid-strategist--phase-e-complete-handoff.openthing",
+      "memos/inbox/2026-05-10-1400--orgdef-strategist--openbraid-engineer--phase-e-resume-opencatalog-shape-shipped.openthing"
+    ]
+  }
+}
