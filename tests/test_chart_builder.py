@@ -22,7 +22,10 @@ import pathlib
 
 import pytest
 
-from server.chart_builder import build_mermaid_for_artifact
+from server.chart_builder import (
+    build_mermaid_for_artifact,
+    synthesize_legacy_org_content,
+)
 
 
 # --- Fixture loaders ---------------------------------------------------------
@@ -66,7 +69,9 @@ def test_single_position_no_relationships():
     assert 'click solo call openPositionPanel("solo")' in out
 
 
-def test_reports_to_renders_as_child_to_parent_arrow():
+def test_reports_to_renders_parent_above_child():
+    """Mermaid graph TD layout: arrow source goes above target. To put
+    parents on top, edges flow parent→child."""
     artifact = {
         "items": [
             {"type": "orgdef:Position", "id": "child", "name": "Child"},
@@ -77,11 +82,11 @@ def test_reports_to_renders_as_child_to_parent_arrow():
         ],
     }
     out = build_mermaid_for_artifact(artifact)
-    assert "child --> parent" in out
+    assert "parent --> child" in out
 
 
-def test_directs_renders_inverse_of_reports_to():
-    """`directs from A to B` == `reports_to from B to A` in tree form."""
+def test_directs_renders_parent_above_child():
+    """`directs from A to B` → A is parent → A --> B at the top of the tree."""
     artifact = {
         "items": [
             {"type": "orgdef:Position", "id": "manager", "name": "Mgr"},
@@ -92,7 +97,7 @@ def test_directs_renders_inverse_of_reports_to():
         ],
     }
     out = build_mermaid_for_artifact(artifact)
-    assert "report --> manager" in out
+    assert "manager --> report" in out
 
 
 def test_secondary_edges_render_dashed_with_label():
@@ -172,9 +177,9 @@ def test_openbraid_org_fixture_renders():
     for pid in ("openbraid-director", "openbraid-strategist", "openbraid-engineer"):
         assert f'{pid}[' in out
         assert f'click {pid} call openPositionPanel' in out
-    # reports_to chain present
-    assert "openbraid-strategist --> openbraid-director" in out
-    assert "openbraid-engineer --> openbraid-strategist" in out
+    # reports_to chain present, parent→child direction (parent at top)
+    assert "openbraid-director --> openbraid-strategist" in out
+    assert "openbraid-strategist --> openbraid-engineer" in out
 
 
 def test_memodef_spec_fixture_renders():
@@ -184,11 +189,48 @@ def test_memodef_spec_fixture_renders():
     # All four positions
     for pid in ("director", "strategist", "maintainer", "canonical-implementor"):
         assert f'{pid}[' in out
-    # reports_to + directs combine into single tree direction
-    assert "strategist --> director" in out
-    # `directs from strategist to maintainer` → `maintainer --> strategist`
-    assert "maintainer --> strategist" in out
-    assert "canonical-implementor --> strategist" in out
+    # reports_to + directs combine into a single parent→child tree
+    # (director at the top; strategist directs maintainer & implementor)
+    assert "director --> strategist" in out
+    assert "strategist --> maintainer" in out
+    assert "strategist --> canonical-implementor" in out
+
+
+def test_synthesize_legacy_org_extracts_position_id_from_canonical_name():
+    """Legacy roles post-migration 0010 are named
+    <handle>/<org_slug>/<position_id>. The chart's position id is
+    just the tail segment so URLs and click directives line up."""
+    legacy_org = {"id": "org-uuid", "name": "personal"}
+    roles = [
+        {"id": "r1", "name": "scott/personal/personal-strategist", "roledef_url": None},
+        {"id": "r2", "name": "scott/personal/openbraid-engineer", "roledef_url": "https://roledef.org/x"},
+    ]
+    content = synthesize_legacy_org_content(legacy_org, roles, "scott")
+    assert content["id"] == "personal"
+    items = content["items"]
+    ids = {it["id"] for it in items}
+    assert ids == {"personal-strategist", "openbraid-engineer"}
+    # roledef_url propagates as role_definition.url when present
+    engineer = next(i for i in items if i["id"] == "openbraid-engineer")
+    assert engineer["role_definition"]["url"] == "https://roledef.org/x"
+    # Mermaid generation works on the synthesized content
+    out = build_mermaid_for_artifact(content)
+    assert out.startswith("graph TD")
+    assert 'personal-strategist[' in out
+    assert 'openbraid-engineer[' in out
+    # No relationships in legacy orgs → no edges
+    assert "-->" not in out
+    assert "-." not in out
+
+
+def test_synthesize_legacy_org_handles_unprefixed_names_defensively():
+    """Roles that escaped migration 0010 (shouldn't happen, but be
+    defensive) should still chart; the full role.name becomes the
+    position id rather than crashing the renderer."""
+    legacy_org = {"id": "org-uuid", "name": "personal"}
+    roles = [{"id": "r1", "name": "legacy-shape", "roledef_url": None}]
+    content = synthesize_legacy_org_content(legacy_org, roles, "scott")
+    assert content["items"][0]["id"] == "legacy-shape"
 
 
 def test_thingalog_fixture_renders_jobs_excluded():

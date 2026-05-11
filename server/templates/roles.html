@@ -424,7 +424,7 @@
             <span style="font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">Org charts:</span>
             {% for c in chart_links %}
             <a href="/panel/orgs/{{ account_handle }}/{{ c.slug }}/chart" style="color: var(--accent); text-decoration: none; font-size: 0.9rem; font-weight: 600;">
-                {{ c.name }} →
+                {{ c.name }}{% if c.is_legacy %} <span style="color: var(--muted); font-weight: 400; font-size: 0.75rem">(legacy)</span>{% endif %} →
             </a>
             {% endfor %}
         </div>
