@@ -27,13 +27,16 @@ import server.boot_url as boot_url
 
 
 @pytest.fixture(autouse=True)
-def _stub_resolve_roledef():
-    """Stub the resolver to a fixed-shape success for every test in this
-    module — keeps assertions deterministic and avoids network."""
-    async def _stub(url):
+def _stub_resolver_and_incumbents():
+    """Stub the roledef resolver and the F0 incumbents lookup for every
+    test in this module — keeps assertions deterministic and avoids
+    network + Supabase. Individual tests can re-patch
+    `incumbent_by_artifact_position` to simulate a bound seat."""
+    async def _stub_resolve(url):
         return ({"type": "roledef:Role", "id": "stub", "url": url}, None)
 
-    with patch.object(boot_url, "resolve_roledef", side_effect=_stub):
+    with patch.object(boot_url, "resolve_roledef", side_effect=_stub_resolve), \
+         patch.object(boot_url, "incumbent_by_artifact_position", return_value=None):
         yield
 
 JOB_ITEM = {
@@ -134,9 +137,12 @@ async def test_position_boot_endpoint_returns_artifact_payload_when_artifact_exi
     # E3 resolver embeds fetched content under role_definition.content
     assert body["role_definition"]["content"]["type"] == "roledef:Role"
     assert body["job_definition"] is None  # no job_definition on this position
-    assert body["incumbent"]["claimable"] is False
-    assert "diagnostic" in body["incumbent"]
-    assert body["claim_instruction"] is None
+    # F0: artifact-backed positions are claimable; default (no incumbents
+    # row stubbed) emits a vacancy block with claim_via instructions
+    assert body["incumbent"]["type"] == "vacant"
+    assert body["incumbent"]["claimable"] is True
+    assert "claim_role" in body["incumbent"]["claimable_via"]
+    assert "claim_role" in body["claim_instruction"]
 
 
 async def test_position_boot_endpoint_role_definition_carries_diagnostic_on_fetch_failure():

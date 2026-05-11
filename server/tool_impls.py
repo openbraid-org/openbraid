@@ -151,20 +151,44 @@ async def tool_send_memo_impl(
         )
         account_id = sender_account.data[0]["account_id"]
 
+        # Phase F migration 0010 unified role.name on
+        # `<handle>/<org>/<position>`; the to_role argument stays as
+        # the bare position id (or accepts a canonical full path). We
+        # match suffix `/{to_role}` to find the recipient regardless
+        # of which org under this account they sit in. Exact-match the
+        # full canonical form first; fall through to suffix-match if
+        # the caller passed a short name.
         recipient = (
             supabase()
             .table("roles")
-            .select("id")
+            .select("id, name")
             .eq("account_id", account_id)
             .eq("name", to_role)
             .is_("deleted_at", "null")
             .execute()
         )
         if not recipient.data:
+            recipient = (
+                supabase()
+                .table("roles")
+                .select("id, name")
+                .eq("account_id", account_id)
+                .like("name", f"%/{to_role}")
+                .is_("deleted_at", "null")
+                .execute()
+            )
+        if not recipient.data:
             raise ValueError(
                 f"No role '{to_role}' found in this account (v0 cross-account "
                 f"routing is not supported; use 'file' to file a memo-to-file "
                 f"in your own role's notes folder)"
+            )
+        if len(recipient.data) > 1:
+            matches = ", ".join(r["name"] for r in recipient.data)
+            raise ValueError(
+                f"Ambiguous recipient '{to_role}' — multiple roles match "
+                f"({matches}). Use the full canonical name (e.g. "
+                f"'<handle>/<org>/<position>') to disambiguate."
             )
         target_role_id = recipient.data[0]["id"]
         kind = "inbox"

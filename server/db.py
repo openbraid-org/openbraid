@@ -217,13 +217,45 @@ def org_by_name(account_id: str, org_name: str) -> dict | None:
 
 
 def position_by_name(org_id: str, position_name: str) -> dict | None:
-    """Resolve a position (role) by (org_id, name)."""
+    """Resolve a legacy role by (org_id, position_name).
+
+    Phase F F0 migration unified role naming on
+    `<account_handle>/<org_slug>/<position_id>` (canonical URL form;
+    migration 0010 rewrote all legacy names). This helper joins the
+    org → account to compute the expected canonical name from the
+    short position_name the URL parser produced, then does the lookup.
+    """
+    sb = supabase()
+    org_row = (
+        sb.table("orgs")
+        .select("name, account_id")
+        .eq("id", org_id)
+        .execute()
+    )
+    if not org_row.data:
+        return None
+    org = org_row.data[0]
+    acct_row = (
+        sb.table("accounts")
+        .select("email")
+        .eq("id", org["account_id"])
+        .execute()
+    )
+    if not acct_row.data:
+        return None
+    handle = acct_row.data[0]["email"].split("@", 1)[0]
+    canonical_name = f"{handle}/{org['name']}/{position_name}"
+    return position_by_canonical_name(org_id, canonical_name)
+
+
+def position_by_canonical_name(org_id: str, canonical_name: str) -> dict | None:
+    """Lookup a role by its post-0010 canonical name within an org."""
     result = (
         supabase()
         .table("roles")
         .select("id, name, roledef_url, created_at, org_id, account_id")
         .eq("org_id", org_id)
-        .eq("name", position_name)
+        .eq("name", canonical_name)
         .is_("deleted_at", "null")
         .execute()
     )
@@ -357,13 +389,27 @@ def parse_position_url(url: str) -> tuple[str, str | None, str]:
 def resolve_position_url(url: str) -> tuple[str, str, str]:
     """Resolve a position URL to (role_id, account_email, role_name).
 
-    Used by claim_role's URL form (Phase C C5). Performs the same
-    handle / org / position lookups the boot URL endpoints do, but
-    returns the three values claim_role's PIN-ceremony path needs.
+    Used by claim_role's URL form. Tries the artifact path first (the
+    canonical store as of Phase E); falls back to legacy roles/orgs
+    tables when no artifact matches.
+
+    Artifact path (Phase F F0):
+      - URL parses to (handle, org_slug, position_id)
+      - account lookup → account row
+      - org_artifacts(account_id, org_slug) → artifact row
+      - find_position_in_artifact(content, position_id) → position item
+      - ensure_artifact_bound_role(...) → role_id (creates synthetic
+        role + incumbents binding on first claim; reuses on subsequent
+        claims of the same seat)
+
+    Legacy path:
+      - URL parses to (handle, org_name, position_name)
+      - orgs(account_id, name) → org row
+      - roles(org_id, name) → role row
 
     Raises ValueError on any resolution failure with a user-presentable
-    message (account not found, org not found, position not found, etc.)
-    so the AI client can act on the error.
+    message (account not found, org/artifact not found, position not
+    found, etc.) so the AI client can act on the error.
     """
     handle, org_name, position_name = parse_position_url(url)
 
@@ -371,24 +417,48 @@ def resolve_position_url(url: str) -> tuple[str, str, str]:
     if not account:
         raise ValueError(f"No account found for handle '{handle}'")
 
+    # Determine the effective org slug. For two-segment sugar we still
+    # require exactly one org under the account; "org" here means
+    # either an artifact OR a legacy orgs row.
     if org_name is None:
-        # Two-segment sugar: account must host exactly one org.
-        orgs = orgs_for_account(account["id"])
-        if len(orgs) != 1:
+        artifacts = artifacts_for_account(account["id"])
+        legacy_orgs = orgs_for_account(account["id"])
+        candidate_slugs = {a["org_slug"] for a in artifacts} | {
+            o["name"] for o in legacy_orgs
+        }
+        if len(candidate_slugs) != 1:
             raise ValueError(
                 f"Two-segment URL form requires the account to host exactly "
-                f"one org; account '{handle}' hosts {len(orgs)}. Use the "
-                f"three-segment form: /<account>/<org>/{position_name}"
+                f"one org; account '{handle}' hosts {len(candidate_slugs)}. "
+                f"Use the three-segment form: "
+                f"/<account>/<org>/{position_name}"
             )
-        org = orgs[0]
+        effective_org_slug = next(iter(candidate_slugs))
     else:
-        org = org_by_name(account["id"], org_name)
-        if not org:
-            raise ValueError(
-                f"No org '{org_name}' found for account '{handle}'"
-            )
+        effective_org_slug = org_name
 
-    position = position_by_name(org["id"], position_name)
+    # Artifact path first: this is the canonical store as of Phase E.
+    artifact = artifact_by_account_and_slug(account["id"], effective_org_slug)
+    if artifact:
+        position_item = find_position_in_artifact(artifact["content"], position_name)
+        if position_item:
+            role_id, role_name = ensure_artifact_bound_role(
+                account_id=account["id"],
+                account_handle=handle,
+                artifact=artifact,
+                position_item=position_item,
+            )
+            return role_id, account["email"], role_name
+
+    # Legacy fallback: pre-Phase-E orgs/roles tables.
+    org = org_by_name(account["id"], effective_org_slug)
+    if not org:
+        raise ValueError(
+            f"No org '{effective_org_slug}' found for account '{handle}'"
+        )
+
+    canonical_name = f"{handle}/{org['name']}/{position_name}"
+    position = position_by_canonical_name(org["id"], canonical_name)
     if not position:
         raise ValueError(
             f"No position '{position_name}' found in org '{org['name']}' "
@@ -396,5 +466,131 @@ def resolve_position_url(url: str) -> tuple[str, str, str]:
         )
 
     return position["id"], account["email"], position["name"]
+
+
+# --- Phase F F0: artifact-bound incumbents -----------------------------------
+
+_INCUMBENT_COLUMNS = (
+    "id, org_artifact_id, position_id, claimed_role_id, account_id, "
+    "created_at, ended_at"
+)
+
+
+def incumbent_by_artifact_position(
+    org_artifact_id: str, position_id: str
+) -> dict | None:
+    """Return the live incumbents row for (artifact, position), or None.
+
+    "Live" means ended_at IS NULL. A vacancy (no row, or row with
+    ended_at set) means the seat is claimable.
+    """
+    result = (
+        supabase()
+        .table("incumbents")
+        .select(_INCUMBENT_COLUMNS)
+        .eq("org_artifact_id", org_artifact_id)
+        .eq("position_id", position_id)
+        .is_("ended_at", "null")
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def ensure_artifact_bound_role(
+    account_id: str,
+    account_handle: str,
+    artifact: dict,
+    position_item: dict,
+) -> tuple[str, str]:
+    """Return (role_id, role_name) for an artifact-bound position,
+    creating the role + incumbents binding on first claim.
+
+    Synthetic role name convention: `<account_handle>/<org_slug>/<position_id>`
+    (e.g. `scott/thingalog/implementer`). The full URL path encodes
+    who owns the role and which org+position it is bound to —
+    Director's call 2026-05-11 so role rows self-describe under
+    future cross-account claim flows.
+
+    Idempotent: if a live incumbents row already exists for this
+    artifact+position, returns its claimed_role_id unchanged. If the
+    binding doesn't exist, creates the role row first (inheriting
+    the roledef URL from position_item.role_definition.url when
+    present) then inserts the incumbents row binding them.
+    """
+    artifact_id = artifact["id"]
+    position_id = position_item["id"]
+
+    existing = incumbent_by_artifact_position(artifact_id, position_id)
+    if existing:
+        role_id = existing["claimed_role_id"]
+        role_lookup = (
+            supabase()
+            .table("roles")
+            .select("name")
+            .eq("id", role_id)
+            .execute()
+        )
+        if role_lookup.data:
+            return role_id, role_lookup.data[0]["name"]
+        # Defensive: incumbent row points at a role that no longer
+        # exists (shouldn't happen — would imply manual SQL surgery).
+        # Fall through to fresh-create.
+
+    org_slug = artifact["org_slug"]
+    synthetic_name = f"{account_handle}/{org_slug}/{position_id}"
+    role_definition = position_item.get("role_definition")
+    roledef_url = (
+        role_definition.get("url")
+        if isinstance(role_definition, dict)
+        else None
+    )
+
+    inserted_role = (
+        supabase()
+        .table("roles")
+        .insert(
+            {
+                "account_id": account_id,
+                "name": synthetic_name,
+                "roledef_url": roledef_url,
+            }
+        )
+        .execute()
+    )
+    role_id = inserted_role.data[0]["id"]
+
+    (
+        supabase()
+        .table("incumbents")
+        .insert(
+            {
+                "org_artifact_id": artifact_id,
+                "position_id": position_id,
+                "claimed_role_id": role_id,
+                "account_id": account_id,
+            }
+        )
+        .execute()
+    )
+
+    return role_id, synthetic_name
+
+
+def active_session_count_for_role(role_id: str) -> int:
+    """Count live auth_sessions for a role (not revoked, not expired).
+
+    Used by the boot payload's `incumbent.active_session_count` field
+    so a fresh agent can see how busy the seat is before claiming.
+    """
+    result = (
+        supabase()
+        .table("auth_sessions")
+        .select("id")
+        .eq("role_id", role_id)
+        .is_("revoked_at", "null")
+        .gt("expires_at", "now()")
+        .execute()
+    )
+    return len(result.data or [])
 
 
