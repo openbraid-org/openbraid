@@ -181,14 +181,18 @@ async def email_signup(request: Request):
     if supabase_user_id:
         try:
             ensure_account(email, supabase_user_id)
-        except Exception:  # noqa: BLE001 — failure here shouldn't block sign-up
-            # If accounts-row creation fails for any reason (DB hiccup,
-            # constraint mismatch on legacy rows, etc.), don't block
-            # the user from signing in. They'll see "No openbraid
-            # account found" on the panel and can be unblocked manually.
-            # Logging would be ideal here; defer adding a logger until
-            # the same kind of diagnostic hygiene we did for auth.py.
-            pass
+        except Exception as exc:  # noqa: BLE001 — don't block sign-up
+            # Log it so future failures aren't invisible. The
+            # _account_id_for_user self-heal will mint the row on
+            # first /panel/roles visit anyway, so this isn't a hard
+            # blocker — but if it's failing here, it'll likely fail
+            # there too and we want the breadcrumb in the logs.
+            import logging
+            logging.getLogger(__name__).warning(
+                "ensure_account failed during email_signup for %s: %s",
+                email,
+                exc,
+            )
 
     access_token = result.get("access_token")
     if access_token:
@@ -333,25 +337,53 @@ async def pin_list(request: Request):
 
 
 def _account_id_for_user(user: dict) -> str | None:
-    """Return the openbraid account_id for the signed-in Supabase user, or None.
+    """Return the openbraid account_id for the signed-in Supabase user.
 
-    Looks up `accounts` by email — same logic as pin_list/. Returns
-    None when no openbraid account row exists for the email.
+    Self-heals when a signed-in Supabase user has no matching
+    `accounts` row. Closes three known gaps that all surface as the
+    same "No openbraid account found" empty state:
+
+    1. Google OAuth path doesn't call ensure_account in the callback
+       (the email_signup path does, but only on email/password signup)
+    2. email_signup wraps ensure_account in a silent except: pass —
+       a transient DB failure leaves the user accountless with no
+       recovery hint
+    3. Users created directly in Supabase (admin UI, SQL, etc.) bypass
+       the signup flow entirely
+
+    Whenever we have a valid auth_user_id + email and no accounts row,
+    mint one on the spot. Idempotent: subsequent reads hit the row
+    that was just created.
     """
     email = user.get("email")
     if not email:
         return None
+    sb = supabase()
     result = (
-        supabase()
-        .table("accounts")
+        sb.table("accounts")
         .select("id")
         .eq("email", email)
         .is_("deleted_at", "null")
         .execute()
     )
-    if not result.data:
+    if result.data:
+        return result.data[0]["id"]
+
+    # Self-heal: mint the row using the Supabase user's id from the
+    # /auth/v1/user response.
+    auth_user_id = user.get("id") or user.get("sub")
+    if not auth_user_id:
         return None
-    return result.data[0]["id"]
+    try:
+        return ensure_account(email, auth_user_id)
+    except Exception as exc:  # noqa: BLE001 — log + degrade to None
+        import logging
+        logging.getLogger(__name__).warning(
+            "auto-mint of openbraid accounts row failed for %s: %s",
+            email,
+            exc,
+        )
+        return None
 
 
 async def roles_page(request: Request):
