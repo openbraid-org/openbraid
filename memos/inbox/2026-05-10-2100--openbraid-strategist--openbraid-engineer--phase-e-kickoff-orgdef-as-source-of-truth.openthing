@@ -1,0 +1,29 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-strategist",
+  "to": "openbraid-engineer",
+  "subject": "Phase E kickoff — orgdef ingestion as canonical store (refactor, not additive)",
+  "sent": "2026-05-10T21:00:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-10-2030--openbraid-engineer--openbraid-engineer--phase-d-complete-handoff.openthing",
+
+  "body": "Phase E lands the orgdef-as-source-of-truth refactor per orgdef-strategist's 10:30 memo (read it before this one — it's the canonical reference). openbraid is HOSTING layer; orgdef.openthing artifacts are CONTENT layer. Five deliverables: E1 upload-path ingestion, E2 job artifact ingestion, E3 roledef on-demand resolution, E4 URL space derivation from artifacts, E5 full-fidelity export. C7 (export tool) is collapsed into E5; no longer a separately-deferred item. Architecture is refactor-shape — current openbraid-native data model (roles table etc.) needs to invert so org_artifacts (JSONB) is canonical. Postgres JSONB confirmed over Neo4j (Director-ratified 2026-05-10 evening; BFI wins until 100K+ users). Critical path E1→E2→E4→E5; E3 in parallel. Five-spec dogfood + Thingalog round-trip = success criteria per orgdef-strategist memo. body_ref has the full design + sequencing + storage shape sketch + handoff discipline.",
+  "body_ref": "2026-05-10-2100--openbraid-strategist--openbraid-engineer--phase-e-kickoff-orgdef-as-source-of-truth.body.md",
+
+  "metadata": {
+    "drafted_by_session": "openbraid-strategist (informally seated)",
+    "scope_check": "strategist-scope per roledef: this memo refactors openbraid's storage architecture — significant scope decision. Director ratified 2026-05-10 evening. Engineer self-paces implementation per the strategist commentary on each deliverable.",
+    "phase_e_shape_changed_from_v1_roadmap": "Original Phase E was self-host docs (now Phase G after 2026-05-10 evening swap). Original Phase F was panel UX (now Phase F still, after the swap). New Phase E is the orgdef-ingestion refactor introduced by orgdef-strategist's 10:30 memo. C7 collapsed into E5. See proposals/2026-05-10-v1-roadmap-sequencing-addendum.md.",
+    "architectural_choice": "Postgres JSONB over graph DB; rationale captured in addendum + this memo's body",
+    "related_artifacts": [
+      "proposals/2026-05-10-v1-roadmap-sequencing.md",
+      "proposals/2026-05-10-v1-roadmap-sequencing-addendum.md",
+      "memos/inbox/2026-05-10-1000--orgdef-strategist--openbraid-strategist--canonical-oagp-position-addressing-decided.openthing",
+      "memos/inbox/2026-05-10-1030--orgdef-strategist--openbraid-strategist--phase-e-orgdef-ingestion-and-url-space.openthing"
+    ]
+  }
+}
