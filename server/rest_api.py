@@ -36,6 +36,7 @@ from server.tool_impls import (
     tool_mark_read_impl,
     tool_read_memo_impl,
     tool_send_memo_impl,
+    tool_upload_job_impl,
     tool_upload_org_impl,
 )
 
@@ -217,6 +218,34 @@ class UploadOrgResponse(BaseModel):
     slug_id_mismatch: bool
 
 
+class UploadJobRequest(BaseModel):
+    org_slug: str = Field(
+        ...,
+        description=(
+            "The owning org's URL slug. The org_artifact must already "
+            "exist on this account (upload the orgdef via upload_org "
+            "before its jobs)."
+        ),
+        examples=["thingalog"],
+    )
+    content: dict = Field(
+        ...,
+        description=(
+            "The roledef:Job artifact as a parsed JSON object. MUST "
+            "contain catdef, roledef, type ('roledef:Job'), id, name, "
+            "and version fields."
+        ),
+    )
+
+
+class UploadJobResponse(BaseModel):
+    artifact_id: str
+    org_slug: str
+    job_id: str
+    version: str
+    byte_count: int
+
+
 # --- Routes -----------------------------------------------------------------
 
 
@@ -342,6 +371,25 @@ async def rest_upload_org(
 ) -> dict:
     try:
         return await tool_upload_org_impl(
+            session_token=creds.credentials,
+            org_slug=req.org_slug,
+            content=req.content,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@api.post(
+    "/upload_job",
+    response_model=UploadJobResponse,
+    summary="Ingest a roledef:Job artifact under an existing org",
+)
+async def rest_upload_job(
+    req: UploadJobRequest,
+    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+) -> dict:
+    try:
+        return await tool_upload_job_impl(
             session_token=creds.credentials,
             org_slug=req.org_slug,
             content=req.content,

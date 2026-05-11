@@ -37,11 +37,73 @@ from server.db import (
     artifact_by_account_and_slug,
     artifacts_for_account,
     find_position_in_artifact,
+    job_artifact_by_org_and_id,
     org_by_name,
     orgs_for_account,
     position_by_name,
     supabase,
 )
+
+
+def _resolve_job_id_from_position(position_data: dict) -> str | None:
+    """Extract the job_id a position's job_definition references, if any.
+
+    Two-step lookup: prefer the explicit `job_definition.id` field (mirrors
+    role_definition's shape per orgdef-spec); fall back to parsing the
+    terminal segment of `job_definition.url` (strip `.openthing` suffix
+    if present). Returns None when the position has no job_definition
+    or when neither form yields a usable id.
+    """
+    jd = position_data.get("job_definition")
+    if not isinstance(jd, dict):
+        return None
+    if isinstance(jd.get("id"), str) and jd["id"]:
+        return jd["id"]
+    url = jd.get("url")
+    if not isinstance(url, str) or not url:
+        return None
+    # Strip query/fragment so they don't poison the slug.
+    bare = url.split("#", 1)[0].split("?", 1)[0]
+    tail = bare.rstrip("/").rsplit("/", 1)[-1]
+    if tail.endswith(".openthing"):
+        tail = tail[: -len(".openthing")]
+    return tail or None
+
+
+def _resolve_job_definition_payload(
+    org_artifact_id: str, position_data: dict
+) -> dict | None:
+    """Build the `job_definition` field for an artifact-backed boot payload.
+
+    Returns None when the position has no job_definition at all. When a
+    job is referenced but not yet ingested, returns a reference shape
+    `{url, diagnostic}`. When the job IS ingested, returns the full
+    artifact content under `content` plus the reference fields so the
+    fresh agent has the entire job artifact inline.
+    """
+    jd = position_data.get("job_definition")
+    if not isinstance(jd, dict):
+        return None
+    job_id = _resolve_job_id_from_position(position_data)
+    base = {"id": jd.get("id"), "version": jd.get("version"), "url": jd.get("url")}
+    if not job_id:
+        base["diagnostic"] = (
+            "Position references a job_definition but no id or parseable "
+            "URL terminal segment is available. Upload the job via "
+            "upload_job and ensure job_definition.id matches."
+        )
+        return base
+    job_row = job_artifact_by_org_and_id(org_artifact_id, job_id)
+    if not job_row:
+        base["diagnostic"] = (
+            f"Job {job_id!r} referenced by this position but not yet "
+            f"ingested. Upload it via upload_job for full inline boot context."
+        )
+        return base
+    base["content"] = job_row["content"]
+    base["artifact_id"] = job_row["id"]
+    base["resolved_version"] = job_row.get("version")
+    return base
 
 
 def _build_artifact_boot_payload(
@@ -85,11 +147,8 @@ def _build_artifact_boot_payload(
             "org_location": content.get("x.org.org_location"),
         },
         "role_definition": position_data.get("role_definition"),
-        "job_definition": (
-            {"url": position_data["job_definition"]["url"]}
-            if isinstance(position_data.get("job_definition"), dict)
-            and position_data["job_definition"].get("url")
-            else None
+        "job_definition": _resolve_job_definition_payload(
+            artifact["id"], position_data
         ),
         "incumbent": {
             "active_sessions": 0,

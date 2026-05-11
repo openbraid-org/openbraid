@@ -44,6 +44,10 @@ EXPECTED_TOOLS: dict[str, dict[str, set[str]]] = {
         "required": {"session_token", "org_slug", "content"},
         "optional": set(),
     },
+    "upload_job": {
+        "required": {"session_token", "org_slug", "content"},
+        "optional": set(),
+    },
 }
 
 

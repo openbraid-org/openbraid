@@ -407,6 +407,145 @@ async def tool_upload_org_impl(
     }
 
 
+async def tool_upload_job_impl(
+    session_token: str,
+    org_slug: str,
+    content: dict,
+) -> dict:
+    """Ingest a roledef:Job artifact, scoped to an existing org_artifact.
+
+    Phase E E2. Jobs are the "what does this seat actually produce"
+    layer that hangs off an orgdef position's `job_definition.url`. We
+    store them in `job_artifacts` parallel to `org_artifacts`, scoped
+    to the owning org via FK. The artifact's `id` becomes the job's
+    URL-resolvable slug (e.g. "implementer" for an
+    /scott/thingalog/implementer-shaped job).
+
+    Per the orgdef-strategist canonical-store principle, the artifact
+    is stored byte-equivalent for E5 round-trip; the indexed columns
+    (org_artifact_id, job_id, version) are derived-from-content.
+
+    Authorization: identical to upload_org — any session_token from a
+    role belonging to the org_artifact's owning account grants ingest
+    authority for that org's jobs.
+
+    Args:
+        session_token: From a successful `auth_with_pin`.
+        org_slug: The owning org's URL slug (must already be uploaded
+            via upload_org; jobs cannot exist without a parent org).
+        content: The roledef:Job artifact as a parsed dict. Stored
+            byte-equivalent; round-trip must be lossless.
+
+    Returns:
+        dict with: artifact_id (str), org_slug (str), job_id (str),
+        version (str), byte_count (int).
+
+    Raises:
+        ValueError on validation failure or when the parent org doesn't
+        exist for the uploading account.
+    """
+    if not isinstance(content, dict):
+        raise ValueError(
+            "content must be a JSON object (dict), got %s" % type(content).__name__
+        )
+    _require_field(content, "catdef", str)
+    _require_field(content, "roledef", str)
+    _require_field(content, "type", str)
+    if content["type"] != "roledef:Job":
+        raise ValueError(
+            f"content.type must be 'roledef:Job' for ingest; "
+            f"got {content['type']!r}. Use upload_org for orgdef:Organization."
+        )
+    _require_field(content, "id", str)
+    _require_field(content, "name", str)
+    _require_field(content, "version", str)
+
+    if not isinstance(org_slug, str) or not org_slug:
+        raise ValueError("org_slug must be a non-empty string")
+    if "/" in org_slug or " " in org_slug:
+        raise ValueError(
+            f"org_slug must not contain '/' or whitespace; got {org_slug!r}"
+        )
+
+    sender_role_id = get_role_id_from_token(session_token)
+    role_lookup = (
+        supabase()
+        .table("roles")
+        .select("account_id")
+        .eq("id", sender_role_id)
+        .execute()
+    )
+    if not role_lookup.data:
+        raise ValueError("Session token's role no longer exists")
+    account_id = role_lookup.data[0]["account_id"]
+
+    # Parent-org gate: the job's org_slug must already exist as an
+    # org_artifact for this account. Jobs are scoped to orgs; uploading
+    # a job for a slug we've never heard of is rejected so the
+    # FK-violation surface is a friendly ValueError instead of a 500.
+    parent = (
+        supabase()
+        .table("org_artifacts")
+        .select("id")
+        .eq("account_id", account_id)
+        .eq("org_slug", org_slug)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    if not parent.data:
+        raise ValueError(
+            f"No org artifact found for slug {org_slug!r} on this account. "
+            f"Upload the orgdef artifact via upload_org before its jobs."
+        )
+    org_artifact_id = parent.data[0]["id"]
+    job_id = content["id"]
+
+    existing = (
+        supabase()
+        .table("job_artifacts")
+        .select("id")
+        .eq("org_artifact_id", org_artifact_id)
+        .eq("job_id", job_id)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    if existing.data:
+        artifact_id = existing.data[0]["id"]
+        supabase().table("job_artifacts").update(
+            {
+                "content": content,
+                "version": content["version"],
+                "updated_at": "now()",
+            }
+        ).eq("id", artifact_id).execute()
+    else:
+        inserted = (
+            supabase()
+            .table("job_artifacts")
+            .insert(
+                {
+                    "org_artifact_id": org_artifact_id,
+                    "job_id": job_id,
+                    "content": content,
+                    "version": content["version"],
+                }
+            )
+            .execute()
+        )
+        artifact_id = inserted.data[0]["id"]
+
+    import json
+    byte_count = len(json.dumps(content, separators=(",", ":")))
+
+    return {
+        "artifact_id": artifact_id,
+        "org_slug": org_slug,
+        "job_id": job_id,
+        "version": content["version"],
+        "byte_count": byte_count,
+    }
+
+
 def _require_field(obj: dict, name: str, expected_type: type) -> None:
     """Raise ValueError if `obj[name]` is missing or wrong type.
 

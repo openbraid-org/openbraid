@@ -35,6 +35,7 @@ from server.tool_impls import (
     tool_mark_read_impl,
     tool_read_memo_impl,
     tool_send_memo_impl,
+    tool_upload_job_impl,
     tool_upload_org_impl,
 )
 
@@ -270,6 +271,38 @@ async def upload_org(
         position_count (int), byte_count (int), slug_id_mismatch (bool).
     """
     return await tool_upload_org_impl(
+        session_token=session_token,
+        org_slug=org_slug,
+        content=content,
+    )
+
+
+@mcp.tool()
+async def upload_job(
+    session_token: str,
+    org_slug: str,
+    content: dict,
+) -> dict:
+    """Ingest a roledef:Job artifact under an existing org's URL space.
+
+    Phase E E2. The job sits beneath an org_artifact and is referenced
+    by an orgdef position's `job_definition.url`. When a fresh agent
+    boots into a position whose job is uploaded, the boot payload
+    embeds the full job content; otherwise the position's
+    `job_definition` carries the unresolved URL plus a diagnostic.
+
+    Args:
+        session_token: From a successful `auth_with_pin`.
+        org_slug: The owning org's URL slug. The org_artifact must
+            already exist (upload the orgdef before its jobs).
+        content: The roledef:Job artifact as parsed JSON. MUST contain
+            catdef, roledef, type ('roledef:Job'), id, name, version.
+
+    Returns:
+        dict with: artifact_id (str), org_slug (str), job_id (str),
+        version (str), byte_count (int).
+    """
+    return await tool_upload_job_impl(
         session_token=session_token,
         org_slug=org_slug,
         content=content,

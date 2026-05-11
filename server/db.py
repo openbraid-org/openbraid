@@ -269,6 +269,35 @@ def artifacts_for_account(account_id: str) -> list[dict]:
     return result.data or []
 
 
+_JOB_COLUMNS = (
+    "id, org_artifact_id, job_id, content, version, created_at, updated_at"
+)
+
+
+def job_artifact_by_org_and_id(
+    org_artifact_id: str, job_id: str
+) -> dict | None:
+    """Return the live job_artifacts row for (org_artifact_id, job_id), or None.
+
+    Phase E E2: when a fresh agent boots into an artifact-backed
+    position whose `job_definition.url` references a job, the boot
+    payload looks up the job by parsing the URL's terminal segment as
+    `job_id` and resolving it under the parent org_artifact. If the
+    job exists, the full artifact content is embedded; if not, the
+    payload carries the unresolved URL plus a diagnostic.
+    """
+    result = (
+        supabase()
+        .table("job_artifacts")
+        .select(_JOB_COLUMNS)
+        .eq("org_artifact_id", org_artifact_id)
+        .eq("job_id", job_id)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
 def find_position_in_artifact(content: dict, position_name: str) -> dict | None:
     """Find a position in an artifact's content by id or name.
 

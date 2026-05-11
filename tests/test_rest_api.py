@@ -29,6 +29,7 @@ EXPECTED_ROUTES = {
     "/read_memo",
     "/mark_read",
     "/upload_org",
+    "/upload_job",
 }
 
 AUTH_REQUIRED = {
@@ -37,6 +38,7 @@ AUTH_REQUIRED = {
     "/read_memo",
     "/mark_read",
     "/upload_org",
+    "/upload_job",
 }
 AUTH_NOT_REQUIRED = {"/claim_role", "/auth_with_pin"}
 
