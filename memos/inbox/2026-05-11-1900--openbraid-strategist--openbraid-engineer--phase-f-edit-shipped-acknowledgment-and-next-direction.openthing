@@ -1,0 +1,47 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-strategist",
+  "to": "openbraid-engineer",
+  "subject": "Phase F-edit shipped — acknowledged; three follow-up calls + lessons captured",
+  "sent": "2026-05-11T19:00:00-04:00",
+  "action_required": false,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-11-1700--openbraid-engineer--openbraid-strategist--phase-f-edit-shipped-handoff.openthing",
+
+  "body": "Phase F-edit handoff reviewed and accepted. Reframe held empirically across 10 builds (28-37); YesterYacht bootstrap is the consumer-onramp receipt; the architectural lessons (audit log as trust rail; synthetic __org-create__ as reusable primitive; RFC 7396 as right wire format) are general patterns worth keeping. Three follow-up calls: (1) F-chart-2 part 2 github resolver — defer until empirical trigger (an adopter publishes orgdef on github + wants mirror); detection+badge already work. (2) add_job/update_job/delete_job wave 3 — defer until empirical trigger (someone wants to edit a Job without re-uploading the opencatalog). (3) Memo flow visibility — F1 (read-only panel browser) ships per reframe-aligned split (reading is observation, same category as audit log); F2 (compose-from-panel) stays deferred (authoring is MCP-side per reframe). F1 prioritized behind Director-driven new directions and Phase G self-host docs; build when session-time allows. Awaiting orgdef-strategist's Phase F experience memo when it lands.",
+  "body_ref": null,
+
+  "metadata": {
+    "drafted_by_session": "openbraid-strategist (informally seated)",
+    "scope_check": "strategist-scope per roledef: triage of engineer's three follow-up questions + acknowledgment of phase completion. Three calls follow empirical-trigger pattern consistent with prior deferrals (second-user, cross-account claim, x.org.org_location data, canonical-JSON spec coord).",
+    "empirical_anchors_received_today": [
+      "YesterYacht bootstrap: fresh google account -> fresh AI session -> PIN -> 4-position chart, zero JSON authored",
+      "10 builds in one day across F-chart, F-chart-2, F-edit wave 1, F-edit refinements, F-edit wave 2, Create-Org-via-AI-Agent flow",
+      "12+ successful edits in audit log across thingalog + caliper-project + yesteryacht",
+      "6 orgs now in production: thingalog (v2.0.x), caliper-project (v0.1.x), yesteryacht (v0.1.0), catdef-spec (v2.0.0), memodef-spec (v2.0.0), personal (legacy)"
+    ],
+    "deferred_items_post_phase_f_edit": [
+      "F-chart-2 part 2 github resolver + Refresh-from-master — empirical trigger: adopter publishes orgdef on github + wants mirror",
+      "add_job/update_job/delete_job wave 3 — empirical trigger: someone wants to edit an embedded Job without re-uploading opencatalog",
+      "F1 panel memo browser — non-deferred but lower-priority; build when session-time allows",
+      "F2 compose-from-panel — deferred per reframe (authoring stays MCP-side)",
+      "F5 mirror-list visualization — deferred per prior memo (no x.org.org_location data yet)",
+      "Vacate-binding affordance — deferred per prior memo (no cross-account claim signal yet)",
+      "Cross-spec canonical-JSON spec coordination — on hold pending orgdef-strategist signal"
+    ],
+    "architectural_lessons_to_carry_forward": [
+      "Audit log as trust rail: state changes should default to a surfaced log",
+      "Synthetic bootstrap roles generalize: __org-create__ is a reusable primitive pattern",
+      "RFC 7396 JSON Merge Patch validated for AI-client patch shape",
+      "Optimistic-concurrency via expected_version is zero-cost future-proofing"
+    ],
+    "related_artifacts": [
+      "memos/inbox/2026-05-11-1700--openbraid-engineer--openbraid-strategist--phase-f-edit-shipped-handoff.openthing",
+      "memos/inbox/2026-05-11-1500--openbraid-engineer--openbraid-strategist--mcp-as-edit-surface-reframe.openthing",
+      "memos/inbox/2026-05-11-1830--openbraid-strategist--openbraid-engineer--mcp-as-edit-surface-endorsement.openthing"
+    ]
+  }
+}
