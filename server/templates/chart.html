@@ -306,6 +306,13 @@
         </div>
     </header>
     <main>
+        {% if notice %}
+        <div style="padding: 0.75rem 1rem; border-radius: 0.375rem; margin-bottom: 1rem; background: rgba(123, 195, 224, 0.1); border: 1px solid var(--notice); color: var(--notice); font-size: 0.9rem;">{{ notice }}</div>
+        {% endif %}
+        {% if error %}
+        <div style="padding: 0.75rem 1rem; border-radius: 0.375rem; margin-bottom: 1rem; background: rgba(224, 123, 123, 0.1); border: 1px solid var(--error); color: var(--error); font-size: 0.9rem;">{{ error }}</div>
+        {% endif %}
+
         <div class="org-header">
             <h2 style="display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.6rem;">
                 <span>{{ org_name }}</span>
@@ -327,7 +334,7 @@
             <div class="org-slug">{{ account_handle }}/{{ org_slug }} · {{ position_count }} position{% if position_count != 1 %}s{% endif %}{% if master and master.master_url %} · master: <a href="{{ master.master_url }}" target="_blank" rel="noopener" style="color: var(--muted); text-decoration: underline dotted;">{{ master.master_url }}</a>{% endif %}</div>
         </div>
 
-        {% if org_mission or about.vision or about.scope or about.governance_model or about.values or about.red_lines %}
+        {% if org_mission or org_vision or org_scope or org_governance or org_values or org_red_lines %}
         <div class="about-block">
             {% if org_mission %}
             <div class="about-section">
@@ -336,46 +343,46 @@
             </div>
             {% endif %}
 
-            {% if about.vision %}
+            {% if org_vision %}
             <div class="about-section">
                 <div class="label">Vision</div>
-                <div class="about-prose">{{ about.vision }}</div>
+                <div class="about-prose">{{ org_vision }}</div>
             </div>
             {% endif %}
 
-            {% if about.scope %}
+            {% if org_scope %}
             <div class="about-section">
                 <details class="about-details">
                     <summary>
                         <span class="summary-title">Scope</span>
-                        <span class="summary-preview">{{ about.scope[:90] }}{% if about.scope|length > 90 %}…{% endif %}</span>
+                        <span class="summary-preview">{{ org_scope[:90] }}{% if org_scope|length > 90 %}…{% endif %}</span>
                     </summary>
-                    <div class="about-body about-prose">{{ about.scope }}</div>
+                    <div class="about-body about-prose">{{ org_scope }}</div>
                 </details>
             </div>
             {% endif %}
 
-            {% if about.governance_model %}
+            {% if org_governance %}
             <div class="about-section">
                 <details class="about-details">
                     <summary>
                         <span class="summary-title">Governance model</span>
-                        <span class="summary-preview">{{ about.governance_model[:90] }}{% if about.governance_model|length > 90 %}…{% endif %}</span>
+                        <span class="summary-preview">{{ org_governance[:90] }}{% if org_governance|length > 90 %}…{% endif %}</span>
                     </summary>
-                    <div class="about-body about-prose">{{ about.governance_model }}</div>
+                    <div class="about-body about-prose">{{ org_governance }}</div>
                 </details>
             </div>
             {% endif %}
 
-            {% if about.values %}
+            {% if org_values %}
             <div class="about-section">
                 <details class="about-details">
                     <summary>
-                        <span class="summary-title">Values · {{ about.values|length }}</span>
-                        <span class="summary-preview">{% for v in about.values[:3] %}{{ v.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% if about.values|length > 3 %}, …{% endif %}</span>
+                        <span class="summary-title">Values · {{ org_values|length }}</span>
+                        <span class="summary-preview">{% for v in org_values[:3] %}{{ v.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% if org_values|length > 3 %}, …{% endif %}</span>
                     </summary>
                     <ul class="about-list about-body">
-                        {% for v in about.values %}
+                        {% for v in org_values %}
                         <li>
                             {% if v.name %}<div class="item-name">{{ v.name }}</div>{% endif %}
                             {% if v.description %}<div class="item-desc">{{ v.description }}</div>{% endif %}
@@ -387,15 +394,15 @@
             </div>
             {% endif %}
 
-            {% if about.red_lines %}
+            {% if org_red_lines %}
             <div class="about-section">
                 <details class="about-details">
                     <summary>
-                        <span class="summary-title">Red lines · {{ about.red_lines|length }}</span>
+                        <span class="summary-title">Red lines · {{ org_red_lines|length }}</span>
                         <span class="summary-preview">things this org will not do</span>
                     </summary>
                     <ul class="about-list about-body">
-                        {% for r in about.red_lines %}
+                        {% for r in org_red_lines %}
                         <li>
                             {% if r.rule %}<div class="item-name">{{ r.rule }}</div>{% endif %}
                             {% if r.rationale %}<div class="item-rationale">{{ r.rationale }}</div>{% endif %}

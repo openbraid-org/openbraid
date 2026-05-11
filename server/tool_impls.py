@@ -331,6 +331,32 @@ async def tool_upload_org_impl(
         dict with: artifact_id, org_slug, version, position_count,
         job_count, role_count, byte_count, slug_id_mismatch.
     """
+    # Validate BEFORE any DB call so malformed input fast-fails without
+    # a Supabase round-trip (and so unit tests don't need to mock the
+    # role lookup just to exercise validation).
+    _validate_opencatalog_content(content, org_slug)
+
+    sender_role_id = get_role_id_from_token(session_token)
+    role_lookup = (
+        supabase()
+        .table("roles")
+        .select("account_id")
+        .eq("id", sender_role_id)
+        .execute()
+    )
+    if not role_lookup.data:
+        raise ValueError("Session token's role no longer exists")
+    account_id = role_lookup.data[0]["account_id"]
+
+    return upload_org_for_account(account_id, org_slug, content)
+
+
+def _validate_opencatalog_content(content, org_slug: str) -> None:
+    """SCHEMA v1.0.0 envelope + items + internal-consistency checks.
+
+    Shared by `tool_upload_org_impl` (MCP) and `upload_org_for_account`
+    (panel). Raises ValueError on any failure. No DB calls.
+    """
     if not isinstance(content, dict):
         raise ValueError(
             "content must be a JSON object (dict), got %s" % type(content).__name__
@@ -363,19 +389,24 @@ async def tool_upload_org_impl(
             f"org_slug must not contain '/' or whitespace; got {org_slug!r}"
         )
 
-    slug_id_mismatch = org_slug != content["id"]
 
-    sender_role_id = get_role_id_from_token(session_token)
-    role_lookup = (
-        supabase()
-        .table("roles")
-        .select("account_id")
-        .eq("id", sender_role_id)
-        .execute()
-    )
-    if not role_lookup.data:
-        raise ValueError("Session token's role no longer exists")
-    account_id = role_lookup.data[0]["account_id"]
+def upload_org_for_account(
+    account_id: str,
+    org_slug: str,
+    content: dict,
+) -> dict:
+    """Ingest path shared by the MCP tool wrapper and the panel upload
+    affordance. Validates + upserts the artifact under the given
+    account. Same receipt shape as `tool_upload_org_impl`.
+
+    Synchronous helper — no auth lookup. Callers are responsible for
+    resolving the account_id (MCP via session_token, panel via the
+    Supabase user session).
+    """
+    _validate_opencatalog_content(content, org_slug)
+
+    slug_id_mismatch = org_slug != content["id"]
+    items = content["items"]
 
     existing = (
         supabase()

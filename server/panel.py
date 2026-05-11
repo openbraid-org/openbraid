@@ -43,6 +43,7 @@ from server.chart_builder import (
     synthesize_legacy_org_content,
 )
 from server.master_state import detect_master_state
+from server.tool_impls import upload_org_for_account
 from server.db import (
     account_by_handle,
     artifact_by_account_and_slug,
@@ -723,13 +724,16 @@ async def chart_page(request: Request):
     # All optional; the template renders each section only when its
     # source field is present and non-empty. Strategist's note 3
     # supported wiring these up now without waiting for v1.1.0.
-    about = {
-        "vision": content.get("vision"),
-        "scope": content.get("scope"),
-        "governance_model": content.get("governance_model"),
-        "values": content.get("values") if isinstance(content.get("values"), list) else None,
-        "red_lines": content.get("red_lines") if isinstance(content.get("red_lines"), list) else None,
-    }
+    #
+    # Pass as flat context vars rather than a single `about` dict —
+    # Jinja's `.` attribute lookup hits dict.values (the bound method)
+    # before the "values" key, which 500'd build 31. Flat avoids the
+    # name collision.
+    org_vision_text = content.get("vision")
+    org_scope_text = content.get("scope")
+    org_governance_text = content.get("governance_model")
+    org_values_list = content.get("values") if isinstance(content.get("values"), list) else None
+    org_red_lines_list = content.get("red_lines") if isinstance(content.get("red_lines"), list) else None
 
     return TEMPLATES.TemplateResponse(
         request,
@@ -741,7 +745,11 @@ async def chart_page(request: Request):
             "org_name": content.get("name") or org_slug,
             "org_mission": content.get("mission"),
             "org_version": content.get("version"),
-            "about": about,
+            "org_vision": org_vision_text,
+            "org_scope": org_scope_text,
+            "org_governance": org_governance_text,
+            "org_values": org_values_list,
+            "org_red_lines": org_red_lines_list,
             "mermaid_text": mermaid_text,
             "is_legacy": kind == "legacy",
             "master": master,
@@ -749,6 +757,8 @@ async def chart_page(request: Request):
                 1 for it in (content.get("items") or [])
                 if isinstance(it, dict) and it.get("type") == "orgdef:Position"
             ),
+            "notice": request.query_params.get("notice"),
+            "error": request.query_params.get("error"),
         },
     )
 
@@ -1049,6 +1059,86 @@ async def session_revoke(request: Request):
     return Response(status_code=204)
 
 
+async def org_upload(request: Request):
+    """POST /panel/orgs/upload — ingest an .opencatalog via the panel.
+
+    Phase F F-chart-2 follow-up. Lets Director upload an opencatalog
+    artifact directly from the panel without going through the MCP
+    upload_org tool. Multipart form: a `file` field (the .opencatalog
+    file contents). org_slug derives from `content.id` by default;
+    explicit `org_slug` form field overrides.
+
+    Auth: signed-in user must have an openbraid account; the account
+    id is the upload owner. Mirrors the MCP tool's authorization
+    posture (any active session for the account grants ingest).
+    """
+    user = await _current_user(request)
+    if not user:
+        return RedirectResponse("/", status_code=303)
+
+    account_id = _account_id_for_user(user)
+    if not account_id:
+        return RedirectResponse(
+            "/panel/roles?error=No+openbraid+account+found+for+your+email",
+            status_code=303,
+        )
+
+    from urllib.parse import quote_plus
+
+    form = await request.form()
+    upload = form.get("file")
+    pasted = (form.get("content_json") or "").strip()
+    override_slug = (form.get("org_slug") or "").strip()
+
+    raw: bytes | str | None = None
+    if upload is not None and hasattr(upload, "read"):
+        raw = await upload.read()
+    elif pasted:
+        raw = pasted
+    if not raw:
+        return RedirectResponse(
+            "/panel/roles?error=Pick+a+.opencatalog+file+or+paste+JSON+content",
+            status_code=303,
+        )
+
+    import json as _json
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        content = _json.loads(raw)
+    except (UnicodeDecodeError, _json.JSONDecodeError) as exc:
+        return RedirectResponse(
+            f"/panel/roles?error={quote_plus(f'Invalid JSON: {exc}')}",
+            status_code=303,
+        )
+
+    org_slug = override_slug or (content.get("id") if isinstance(content, dict) else None)
+    if not org_slug:
+        return RedirectResponse(
+            "/panel/roles?error=Could+not+determine+org_slug+from+content+(missing+id)",
+            status_code=303,
+        )
+
+    try:
+        receipt = upload_org_for_account(account_id, org_slug, content)
+    except ValueError as exc:
+        return RedirectResponse(
+            f"/panel/roles?error={quote_plus(f'Upload rejected: {exc}')}",
+            status_code=303,
+        )
+
+    handle = (user.get("email") or "").split("@", 1)[0]
+    notice = (
+        f"Uploaded {receipt['org_slug']} v{receipt['version']} "
+        f"({receipt['position_count']} positions, "
+        f"{receipt['job_count']} jobs)"
+    )
+    return RedirectResponse(
+        f"/panel/orgs/{handle}/{receipt['org_slug']}/chart?notice={quote_plus(notice)}",
+        status_code=303,
+    )
+
+
 async def role_delete(request: Request):
     """Soft-delete a legacy role (Phase F F3).
 
@@ -1196,6 +1286,7 @@ panel_routes = [
     Route("/panel/roles/{role_id}/live", role_live),
     Route("/panel/roles/{role_id}/notes", role_notes_page),
     Route("/panel/sessions/{session_id}/revoke", session_revoke, methods=["POST"]),
+    Route("/panel/orgs/upload", org_upload, methods=["POST"]),
     Route("/panel/orgs/{account}/{org}/chart", chart_page),
     Route("/panel/orgs/{account}/{org}/chart/live", chart_live),
     Route(
