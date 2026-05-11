@@ -455,12 +455,68 @@ async def roles_page(request: Request):
             }
         )
 
+    # Vacant artifact positions: positions declared in any of the
+    # account's uploaded opencatalogs that DON'T have a live
+    # incumbents binding. Without this section, Director can't see
+    # a position's canonical URL until after first-claim has minted
+    # a role row — chicken-and-egg for the URL-as-instruction flow.
+    bound_artifact_position_keys = {
+        (row["org_artifact_id"], row["position_id"])
+        for row in (
+            supabase()
+            .table("incumbents")
+            .select("org_artifact_id, position_id")
+            .eq("account_id", account_id)
+            .is_("ended_at", "null")
+            .execute()
+        ).data or []
+    }
+    account_artifacts = artifacts_for_account(account_id)
+    vacant_positions = []
+    for art in account_artifacts:
+        content = art.get("content") or {}
+        items = content.get("items") or []
+        if not isinstance(items, list):
+            continue
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            if it.get("type") != "orgdef:Position":
+                continue
+            position_id = it.get("id")
+            if not isinstance(position_id, str) or not position_id:
+                continue
+            if (art["id"], position_id) in bound_artifact_position_keys:
+                continue
+            canonical_url = f"{mcp_base}/{handle}/{art['org_slug']}/{position_id}"
+            vacant_positions.append(
+                {
+                    "org_slug": art["org_slug"],
+                    "position_id": position_id,
+                    "position_name": it.get("name") or position_id,
+                    "status": it.get("status"),
+                    "description": (it.get("description") or "")[:200],
+                    "role_definition_id": (
+                        (it.get("role_definition") or {}).get("id")
+                        if isinstance(it.get("role_definition"), dict)
+                        else None
+                    ),
+                    "canonical_url": canonical_url,
+                    "recommended_prompt": (
+                        f"Please claim role: {canonical_url} via the openbraid "
+                        f"mcp connector, and review the existing notes and memos. "
+                        f"I'll deliver the PIN."
+                    ),
+                }
+            )
+
     return TEMPLATES.TemplateResponse(
         request,
         "roles.html",
         {
             "user": user,
             "roles": enriched,
+            "vacant_positions": vacant_positions,
             "no_account": False,
             "error": request.query_params.get("error"),
             "notice": request.query_params.get("notice"),

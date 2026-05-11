@@ -413,6 +413,50 @@
             {% endfor %}
         </ul>
         {% endif %}
+
+        {% if vacant_positions %}
+        <h2 style="margin-top: 2.5rem">Available positions · {{ vacant_positions|length }}</h2>
+        <p style="margin: 0 0 1rem; font-size: 0.85rem; color: var(--muted);">
+            Positions declared in your uploaded orgdef artifacts that don't yet have a claimed incumbent.
+            Copy the prompt to instantiate a fresh AI session into one.
+        </p>
+        <ul class="role-list">
+            {% for v in vacant_positions %}
+            <li class="role-card" style="grid-template-columns: 1fr;">
+                <div>
+                    <div class="role-name">
+                        {{ v.org_slug }}/{{ v.position_id }}
+                        <span class="role-badge artifact">artifact · vacant</span>
+                        {% if v.status and v.status != 'vacant' %}
+                        <span class="role-badge legacy" title="orgdef-declared status">{{ v.status }}</span>
+                        {% endif %}
+                    </div>
+                    {% if v.role_definition_id %}
+                    <div class="role-meta">
+                        roledef: {{ v.role_definition_id }}
+                    </div>
+                    {% endif %}
+                    {% if v.description %}
+                    <div style="margin-top: 0.4rem; font-size: 0.85rem; color: var(--fg); line-height: 1.4;">
+                        {{ v.description }}{% if v.description|length >= 200 %}…{% endif %}
+                    </div>
+                    {% endif %}
+                    <div style="margin-top: 0.4rem; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 0.75rem; color: var(--muted); user-select: all;">
+                        {{ v.canonical_url }}
+                    </div>
+                    <div style="margin-top: 0.6rem; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+                        <button
+                            type="button"
+                            class="copy-prompt-btn"
+                            data-prompt="{{ v.recommended_prompt }}"
+                            style="background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 0.3rem 0.7rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.8rem; font-family: inherit; font-weight: 600;"
+                        >📋 Copy claim prompt</button>
+                    </div>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
         {% endif %}
     </main>
 
