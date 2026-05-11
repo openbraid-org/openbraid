@@ -719,6 +719,18 @@ async def chart_page(request: Request):
     mermaid_text = build_mermaid_for_artifact(content, live=live)
     master = detect_master_state(content)
 
+    # Catalog-level "About this org" fields per orgdef SCHEMA v1.0.0.
+    # All optional; the template renders each section only when its
+    # source field is present and non-empty. Strategist's note 3
+    # supported wiring these up now without waiting for v1.1.0.
+    about = {
+        "vision": content.get("vision"),
+        "scope": content.get("scope"),
+        "governance_model": content.get("governance_model"),
+        "values": content.get("values") if isinstance(content.get("values"), list) else None,
+        "red_lines": content.get("red_lines") if isinstance(content.get("red_lines"), list) else None,
+    }
+
     return TEMPLATES.TemplateResponse(
         request,
         "chart.html",
@@ -729,6 +741,7 @@ async def chart_page(request: Request):
             "org_name": content.get("name") or org_slug,
             "org_mission": content.get("mission"),
             "org_version": content.get("version"),
+            "about": about,
             "mermaid_text": mermaid_text,
             "is_legacy": kind == "legacy",
             "master": master,
