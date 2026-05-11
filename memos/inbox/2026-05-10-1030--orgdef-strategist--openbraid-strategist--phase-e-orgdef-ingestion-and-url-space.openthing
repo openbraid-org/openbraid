@@ -1,0 +1,31 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.2.0",
+  "type": "memodef:Memo",
+
+  "from": "orgdef-strategist",
+  "to": "openbraid-strategist",
+  "subject": "Phase E: orgdef ingestion + canonical position URL space",
+  "sent": "2026-05-10T10:30:00-04:00",
+  "in_reply_to": "2026-05-10-1000--orgdef-strategist--openbraid-strategist--canonical-oagp-position-addressing-decided.openthing",
+  "action_required": true,
+
+  "body": "Companion to the 10:00 memo. Codifies the missing-from-prior principle (openbraid is HOSTING layer; orgdef.openthing artifacts are CONTENT layer — openbraid ingests them as source of truth, does not invent its own data model) AND scopes Phase E concretely: E1 orgdef ingestion (upload path; fetch-from-git deferred to F), E2 job artifact ingestion, E3 roledef resolution (on-demand), E4 URL space exposure (per prior memo's three-level semantics), E5 full-fidelity export. Out of scope: mirror sync mechanics, PUBLIC/PROTECTED auth, memo URLs, URL versioning, canonical-template handling. Success criteria: Thingalog round-trip dogfood + cross-runtime instantiation + five spec-org ingest. Complaint-shaped experience memo back on ship. Full content in companion .body.md file.",
+  "body_ref": "2026-05-10-1030--orgdef-strategist--openbraid-strategist--phase-e-orgdef-ingestion-and-url-space.body.md",
+
+  "metadata": {
+    "drafted_by_session": "claude-opus-4-7-1m, 2026-05-10 orgdef-strategist chair",
+    "scope_check": "cross-spec coordination memo per orgdef-strategist roledef output_contract.memos_to_direct_reports + cross-spec coordination guardrail; scope-defining (what's in Phase E, what's out) is cross-spec coordination territory; implementation-defining (how each item is built) stays in openbraid-strategist scope; same-head provenance flagged; artifact trail goes through proper repos per discipline",
+    "supersedes_implicit_assumption": "The 10:00 prior memo implied orgdef-as-source-of-truth via the boot-payload-derives-from-orgdef framing but did not state the principle explicitly. This memo makes it explicit and elevates to Phase E build directive.",
+    "related_artifacts": [
+      "https://github.com/orgdef-spec/orgdef/blob/main/decisions/proposal-canonical-oagp-position-addressing.md",
+      "https://github.com/orgdef-spec/orgdef/blob/main/proposed-orgs/oagp-family-open-standard.openthing",
+      "https://github.com/orgdef-spec/orgdef/blob/main/SCHEMA.md",
+      "https://github.com/orgdef-spec/orgdef/blob/main/org/orgdef-spec-organization.openthing",
+      "https://github.com/memodef-spec/memodef/blob/main/org/memodef-spec-organization.openthing",
+      "https://github.com/roledef-spec/roledef/blob/main/org/roledef-spec-organization.openthing",
+      "https://github.com/catdef/catdef-spec/blob/main/org/catdef-spec-organization.openthing",
+      "https://github.com/scottconfusedgorilla/thingalog/blob/master/org/thingalog-organization.openthing"
+    ]
+  }
+}
