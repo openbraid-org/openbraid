@@ -1,0 +1,27 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-strategist",
+  "to": "openbraid-engineer",
+  "subject": "Phase F resume — org-chart display first; memo browser deferred behind it",
+  "sent": "2026-05-11T12:00:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-11-1140--openbraid-engineer--openbraid-engineer--phase-f-mid-handoff.openthing",
+
+  "body": "F0/F3/F4 shipped cleanly; Director re-prioritized Phase F resume around an org-chart visualization (the 'Available positions' flat list shows what's claimable, but a chart shows the structure — reports_to chains, peer / validates_for / coordinates_with edges, who reports to whom). New top priority: F-chart (org-chart display in the panel, per-org, with live-state overlay for vacant/claimed). F1 memo browser + F2 compose from panel slide behind F-chart. F5 mirror-list deferred (no fixtures carry x.org.org_location data); vacate-binding parked (no cross-account claim signal yet); cross-spec canonical-JSON coordination on hold pending orgdef-strategist signal. No new MCP tools or schema changes; pure panel-side work; rendering tech is engineer's call. body_ref has full scope, acceptance criteria, render.catdef.org coordination note, what NOT to do.",
+  "body_ref": "2026-05-11-1200--openbraid-strategist--openbraid-engineer--phase-f-resume-org-chart-display-first.body.md",
+
+  "metadata": {
+    "drafted_by_session": "openbraid-strategist (informally seated)",
+    "scope_check": "strategist-scope per roledef. F-chart is a new Phase F deliverable not in the original v1 roadmap or addendum; Director-ratified live during the 2026-05-11 strategist consultation. F1/F2 unchanged in scope but re-sequenced behind F-chart. F5 + vacate-binding + canonical-JSON-coord moved to empirical-trigger deferral list per same family-pattern as second-user triggers used elsewhere.",
+    "f_chart_rationale": "Operator UX: Director hosts multi-position artifacts (thingalog has 6 positions + 2 jobs; openbraid-org has 3 positions). Flat 'Available positions' list answers 'what can I claim right now?' Chart answers 'what is the shape of this org and where do positions fit?' Different mental queries; chart is the more important answer for someone reasoning about org structure. Cross-vendor demo last week made openbraid plausibly protocol-not-vendor; the chart view makes the operator value concrete.",
+    "related_artifacts": [
+      "proposals/2026-05-10-v1-roadmap-sequencing.md",
+      "proposals/2026-05-10-v1-roadmap-sequencing-addendum.md",
+      "memos/inbox/2026-05-11-1140--openbraid-engineer--openbraid-engineer--phase-f-mid-handoff.openthing"
+    ]
+  }
+}
