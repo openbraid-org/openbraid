@@ -56,6 +56,18 @@ EXPECTED_TOOLS: dict[str, dict[str, set[str]]] = {
         "required": {"session_token", "org_slug"},
         "optional": {"kind", "expected_version"},
     },
+    "add_position": {
+        "required": {"session_token", "org_slug", "position"},
+        "optional": {"expected_version"},
+    },
+    "delete_position": {
+        "required": {"session_token", "org_slug", "position_id"},
+        "optional": {"expected_version"},
+    },
+    "update_relationship": {
+        "required": {"session_token", "org_slug", "rtype", "from_id", "to_id"},
+        "optional": {"op", "expected_version"},
+    },
 }
 
 

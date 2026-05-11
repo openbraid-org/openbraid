@@ -417,3 +417,410 @@ async def test_bump_version_rejects_unknown_kind(_mock_role):
                 org_slug="thingalog",
                 kind="huge",
             )
+
+
+# --- add_position ----------------------------------------------------------
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_add_position_appends_to_items(_mock_role):
+    from server.tool_impls import tool_add_position_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_add_position_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            position={
+                "id": "fresh-seat",
+                "name": "Fresh Seat",
+                "summary": "a newly added position",
+            },
+        )
+
+    assert "+position:fresh-seat" in receipt["applied_fields"]
+    assert receipt["version_after"] == "2.0.1"
+    new_content = fake.table.return_value.update.call_args[0][0]["content"]
+    ids = [it["id"] for it in new_content["items"] if isinstance(it, dict)]
+    assert "fresh-seat" in ids
+    # Type defaulted when absent
+    new_item = next(it for it in new_content["items"] if it.get("id") == "fresh-seat")
+    assert new_item["type"] == "orgdef:Position"
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_add_position_rejects_duplicate_id(_mock_role):
+    from server.tool_impls import tool_add_position_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="already exists"):
+            await tool_add_position_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                position={"id": "implementer", "name": "Dupe"},
+            )
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_add_position_rejects_wrong_type(_mock_role):
+    from server.tool_impls import tool_add_position_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="type"):
+            await tool_add_position_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                position={"id": "x", "name": "x", "type": "roledef:Job"},
+            )
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_add_position_rejects_missing_name(_mock_role):
+    from server.tool_impls import tool_add_position_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="name"):
+            await tool_add_position_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                position={"id": "x"},
+            )
+
+
+# --- delete_position -------------------------------------------------------
+
+
+def _build_supabase_for_delete(
+    has_incumbent=False,
+    has_active_sessions=False,
+    content=None,
+    audit_id="audit-uuid",
+):
+    """Build a Supabase mock that responds differently to incumbents
+    and auth_sessions queries (which delete_position uses for its
+    block-when-claimed check)."""
+    client = MagicMock()
+
+    org_table = MagicMock()
+    roles_table = MagicMock()
+    incumbents_table = MagicMock()
+    sessions_table = MagicMock()
+    audit_table = MagicMock()
+
+    def table_dispatch(name):
+        return {
+            "roles": roles_table,
+            "org_artifacts": org_table,
+            "incumbents": incumbents_table,
+            "auth_sessions": sessions_table,
+            "org_artifact_edits": audit_table,
+        }.get(name, MagicMock())
+
+    client.table.side_effect = table_dispatch
+
+    # roles → account_id
+    roles_table.select.return_value.eq.return_value.execute.return_value.data = [
+        {"account_id": "acct-uuid"}
+    ]
+
+    # org_artifacts edit-load chain
+    artifact_content = content if content is not None else dict(VALID_OPENCATALOG)
+    org_table.select.return_value.eq.return_value.eq.return_value.is_.return_value.execute.return_value.data = [{
+        "id": "art-uuid",
+        "account_id": "acct-uuid",
+        "org_slug": "thingalog",
+        "content": artifact_content,
+        "version": "2.0.0",
+        "created_at": "2026-05-10T00:00:00Z",
+        "updated_at": "2026-05-10T00:00:00Z",
+    }]
+    org_table.update.return_value.eq.return_value.execute.return_value.data = [{"id": "art-uuid"}]
+
+    # incumbents lookup
+    incumbent_data = (
+        [{"id": "inc-uuid", "claimed_role_id": "bound-role-uuid"}]
+        if has_incumbent else []
+    )
+    incumbents_table.select.return_value.eq.return_value.eq.return_value.is_.return_value.execute.return_value.data = incumbent_data
+
+    # auth_sessions lookup (4-stage chain: select.eq.is_.gt)
+    sessions_data = [{"id": "s1"}, {"id": "s2"}] if has_active_sessions else []
+    sessions_table.select.return_value.eq.return_value.is_.return_value.gt.return_value.execute.return_value.data = sessions_data
+
+    # audit insert
+    audit_table.insert.return_value.execute.return_value.data = [{"id": audit_id}]
+
+    return client
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_delete_position_pure_data_succeeds(_mock_role):
+    """No incumbents row → straightforward delete + relationships
+    cleanup."""
+    from server.tool_impls import tool_delete_position_impl
+
+    # Seed with a relationships entry pointing at the doomed position
+    seeded = dict(VALID_OPENCATALOG)
+    seeded["relationships"] = [
+        {"type": "reports_to", "from": "implementer", "to": "product-owner"},
+        {"type": "coordinates_with", "from": "implementer", "to": "external:x"},
+    ]
+    fake = _build_supabase_for_delete(has_incumbent=False, content=seeded)
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_delete_position_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            position_id="implementer",
+        )
+
+    assert "-position:implementer" in receipt["applied_fields"]
+    assert "-edges:2" in receipt["applied_fields"]
+    new_content = fake.table("org_artifacts").update.call_args[0][0]["content"]
+    ids = [it["id"] for it in new_content["items"]]
+    assert "implementer" not in ids
+    # Relationships referencing the deleted position are gone
+    rels = new_content["relationships"]
+    assert all(r["from"] != "implementer" and r["to"] != "implementer" for r in rels)
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_delete_position_blocks_when_active_sessions(_mock_role):
+    """Strategist's block-when-claimed rule: a live incumbents binding
+    with active auth_sessions rejects the delete with a friendly error."""
+    from server.tool_impls import tool_delete_position_impl
+
+    fake = _build_supabase_for_delete(
+        has_incumbent=True, has_active_sessions=True,
+    )
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="active session"):
+            await tool_delete_position_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                position_id="implementer",
+            )
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_delete_position_allows_with_binding_but_no_sessions(_mock_role):
+    """A bound role with zero active sessions can still be deleted —
+    the incumbents row exists but no AI is currently inhabiting."""
+    from server.tool_impls import tool_delete_position_impl
+
+    fake = _build_supabase_for_delete(
+        has_incumbent=True, has_active_sessions=False,
+    )
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_delete_position_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            position_id="implementer",
+        )
+
+    assert "-position:implementer" in receipt["applied_fields"]
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_delete_position_404s_on_unknown_id(_mock_role):
+    from server.tool_impls import tool_delete_position_impl
+
+    fake = _build_supabase_for_delete(has_incumbent=False)
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="No Position item"):
+            await tool_delete_position_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                position_id="ghost",
+            )
+
+
+# --- update_relationship ---------------------------------------------------
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_relationship_add_appends_edge(_mock_role):
+    from server.tool_impls import tool_update_relationship_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_update_relationship_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            rtype="reports_to",
+            from_id="implementer",
+            to_id="product-owner",
+            op="add",
+        )
+
+    assert "+edge:reports_to:implementer->product-owner" in receipt["applied_fields"]
+    new_content = fake.table.return_value.update.call_args[0][0]["content"]
+    rels = new_content["relationships"]
+    assert any(
+        r.get("type") == "reports_to"
+        and r.get("from") == "implementer"
+        and r.get("to") == "product-owner"
+        for r in rels
+    )
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_relationship_add_idempotent_when_edge_exists(_mock_role):
+    """Adding an edge that already exists is a successful no-op —
+    no version bump, no audit row, no applied_fields entries."""
+    from server.tool_impls import tool_update_relationship_impl
+
+    seeded = dict(VALID_OPENCATALOG)
+    seeded["relationships"] = [
+        {"type": "reports_to", "from": "implementer", "to": "product-owner"},
+    ]
+    fake = _build_supabase(content=seeded)
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_update_relationship_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            rtype="reports_to",
+            from_id="implementer",
+            to_id="product-owner",
+            op="add",
+        )
+
+    assert receipt["version_after"] == receipt["version_before"]
+    assert receipt["applied_fields"] == []
+    assert receipt["edit_log_id"] is None
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_relationship_remove_drops_matching_edge(_mock_role):
+    from server.tool_impls import tool_update_relationship_impl
+
+    seeded = dict(VALID_OPENCATALOG)
+    seeded["relationships"] = [
+        {"type": "reports_to", "from": "implementer", "to": "product-owner"},
+        {"type": "coordinates_with", "from": "implementer", "to": "product-owner"},
+    ]
+    fake = _build_supabase(content=seeded)
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_update_relationship_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            rtype="reports_to",
+            from_id="implementer",
+            to_id="product-owner",
+            op="remove",
+        )
+
+    assert "-edge:reports_to:implementer->product-owner" in receipt["applied_fields"]
+    new_content = fake.table.return_value.update.call_args[0][0]["content"]
+    rels = new_content["relationships"]
+    # The coordinates_with one survives
+    assert len(rels) == 1
+    assert rels[0]["type"] == "coordinates_with"
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_relationship_remove_idempotent_when_absent(_mock_role):
+    from server.tool_impls import tool_update_relationship_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_update_relationship_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            rtype="reports_to",
+            from_id="implementer",
+            to_id="product-owner",
+            op="remove",
+        )
+
+    assert receipt["applied_fields"] == []
+    assert receipt["edit_log_id"] is None
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_relationship_rejects_unknown_rtype(_mock_role):
+    from server.tool_impls import tool_update_relationship_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="rtype must be one of"):
+            await tool_update_relationship_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                rtype="invented_type",
+                from_id="implementer",
+                to_id="product-owner",
+                op="add",
+            )
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_relationship_add_rejects_dangling_endpoint(_mock_role):
+    from server.tool_impls import tool_update_relationship_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="does not resolve"):
+            await tool_update_relationship_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                rtype="reports_to",
+                from_id="ghost-position",
+                to_id="product-owner",
+                op="add",
+            )
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_relationship_add_accepts_external_endpoint(_mock_role):
+    from server.tool_impls import tool_update_relationship_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_update_relationship_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            rtype="coordinates_with",
+            from_id="implementer",
+            to_id="external:other-org",
+            op="add",
+        )
+
+    assert any("external:other-org" in f for f in receipt["applied_fields"])
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_relationship_add_accepts_org_self_endpoint(_mock_role):
+    from server.tool_impls import tool_update_relationship_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_update_relationship_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            rtype="implements_for",
+            from_id="thingalog",
+            to_id="external:catdef-org",
+            op="add",
+        )
+
+    assert any("thingalog->external:catdef-org" in f for f in receipt["applied_fields"])
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_relationship_rejects_unknown_op(_mock_role):
+    from server.tool_impls import tool_update_relationship_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="op must be"):
+            await tool_update_relationship_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                rtype="reports_to",
+                from_id="implementer",
+                to_id="product-owner",
+                op="set",
+            )

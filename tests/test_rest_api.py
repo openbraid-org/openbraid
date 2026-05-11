@@ -32,6 +32,9 @@ EXPECTED_ROUTES = {
     "/update_position",
     "/update_org_metadata",
     "/bump_version",
+    "/add_position",
+    "/delete_position",
+    "/update_relationship",
     "/export/{account}/{org_slug}",
 }
 
@@ -44,6 +47,9 @@ AUTH_REQUIRED = {
     "/update_position",
     "/update_org_metadata",
     "/bump_version",
+    "/add_position",
+    "/delete_position",
+    "/update_relationship",
 }
 AUTH_NOT_REQUIRED = {
     "/claim_role",

@@ -956,3 +956,322 @@ async def tool_bump_version_impl(
         patch_summary=f"bump_version → {kind}",
         edited_by_role_id=role_id,
     )
+
+
+_KNOWN_RELATIONSHIP_TYPES = frozenset({
+    "reports_to",
+    "directs",
+    "coordinates_with",
+    "validates_for",
+    "peer_of",
+    "implements_for",
+    "derives_from",
+})
+
+
+async def tool_add_position_impl(
+    session_token: str,
+    org_slug: str,
+    position: dict,
+    expected_version: str | None = None,
+) -> dict:
+    """Add a new orgdef:Position item to an opencatalog.
+
+    `position` is the full item dict (id, name, optional role_definition,
+    optional job_definition, optional description / responsibilities /
+    deliverables / etc.). The item's `type` field is set to
+    `orgdef:Position` if absent; an explicit non-Position type is
+    rejected.
+
+    Validations beyond catalog-level revalidation:
+      - position.id must be non-empty and not already taken
+      - if position.job_definition.id is set, must resolve to a
+        sibling roledef:Job item (or carry external URL); same
+        consistency rule upload_org enforces
+    """
+    if not isinstance(position, dict):
+        raise ValueError("position must be a JSON object")
+    if not position.get("type"):
+        position = {**position, "type": "orgdef:Position"}
+    if position.get("type") != "orgdef:Position":
+        raise ValueError(
+            f"position.type must be 'orgdef:Position'; "
+            f"got {position.get('type')!r}"
+        )
+    new_id = position.get("id")
+    if not isinstance(new_id, str) or not new_id:
+        raise ValueError("position.id must be a non-empty string")
+    if not position.get("name"):
+        raise ValueError("position.name must be set")
+
+    role_id, account_id = _resolve_account_for_session(session_token)
+    artifact = _load_artifact_for_edit(account_id, org_slug, expected_version)
+
+    content = artifact["content"]
+    items = content.get("items") or []
+    for it in items:
+        if isinstance(it, dict) and it.get("type") == "orgdef:Position" and it.get("id") == new_id:
+            raise ValueError(
+                f"Position id {new_id!r} already exists in org {org_slug!r}"
+            )
+
+    new_content = dict(content)
+    new_content["items"] = list(items) + [position]
+    new_content["version"] = _bump_semver(
+        content.get("version", "0.0.0"), "patch"
+    )
+
+    return _save_artifact_after_edit(
+        artifact,
+        new_content,
+        tool_name="add_position",
+        patch_summary=f"add_position {new_id}",
+        edited_by_role_id=role_id,
+        applied_fields=[f"+position:{new_id}"],
+    )
+
+
+async def tool_delete_position_impl(
+    session_token: str,
+    org_slug: str,
+    position_id: str,
+    expected_version: str | None = None,
+) -> dict:
+    """Remove an orgdef:Position item from an opencatalog.
+
+    Per orgdef-strategist's 2026-05-11 17:30 memo: a position with a
+    live incumbents binding carrying active auth_sessions BLOCKS the
+    delete. Director must revoke active sessions (or end the binding)
+    before delete is allowed. This is the most conservative of the
+    three options the strategist memo enumerated.
+
+    Also cleans up the relationships[] array — any edge whose
+    endpoint is the deleted position is removed so the artifact's
+    internal consistency stays whole.
+
+    Pure-data delete (no incumbents row, no active sessions) succeeds
+    immediately.
+    """
+    if not isinstance(position_id, str) or not position_id:
+        raise ValueError("position_id must be a non-empty string")
+
+    role_id, account_id = _resolve_account_for_session(session_token)
+    artifact = _load_artifact_for_edit(account_id, org_slug, expected_version)
+
+    content = artifact["content"]
+    items = content.get("items") or []
+
+    found = False
+    for it in items:
+        if isinstance(it, dict) and it.get("type") == "orgdef:Position" and it.get("id") == position_id:
+            found = True
+            break
+    if not found:
+        raise ValueError(
+            f"No Position item with id {position_id!r} in org {org_slug!r}"
+        )
+
+    # Block-when-claimed: an incumbents row + active auth_sessions on
+    # the bound role means a fresh AI is currently inhabiting this
+    # position. Refuse the delete and tell the caller what to do.
+    sb = supabase()
+    incumbent_row = (
+        sb.table("incumbents")
+        .select("id, claimed_role_id")
+        .eq("org_artifact_id", artifact["id"])
+        .eq("position_id", position_id)
+        .is_("ended_at", "null")
+        .execute()
+    )
+    if incumbent_row.data:
+        bound_role_id = incumbent_row.data[0]["claimed_role_id"]
+        sessions = (
+            sb.table("auth_sessions")
+            .select("id")
+            .eq("role_id", bound_role_id)
+            .is_("revoked_at", "null")
+            .gt("expires_at", "now()")
+            .execute()
+        )
+        if sessions.data:
+            raise ValueError(
+                f"Cannot delete position {position_id!r}: "
+                f"{len(sessions.data)} active session(s) on the bound role. "
+                f"Revoke the session(s) via /panel/sessions/<id>/revoke "
+                f"or end the incumbents binding, then retry."
+            )
+
+    new_items = [
+        it for it in items
+        if not (
+            isinstance(it, dict)
+            and it.get("type") == "orgdef:Position"
+            and it.get("id") == position_id
+        )
+    ]
+    relationships = content.get("relationships") or []
+    new_relationships = [
+        rel for rel in relationships
+        if not (
+            isinstance(rel, dict)
+            and (rel.get("from") == position_id or rel.get("to") == position_id)
+        )
+    ]
+    edges_removed = len(relationships) - len(new_relationships)
+
+    new_content = dict(content)
+    new_content["items"] = new_items
+    new_content["relationships"] = new_relationships
+    new_content["version"] = _bump_semver(
+        content.get("version", "0.0.0"), "patch"
+    )
+
+    applied = [f"-position:{position_id}"]
+    if edges_removed:
+        applied.append(f"-edges:{edges_removed}")
+
+    return _save_artifact_after_edit(
+        artifact,
+        new_content,
+        tool_name="delete_position",
+        patch_summary=(
+            f"delete_position {position_id}"
+            + (f" (also dropped {edges_removed} relationships)" if edges_removed else "")
+        ),
+        edited_by_role_id=role_id,
+        applied_fields=applied,
+    )
+
+
+async def tool_update_relationship_impl(
+    session_token: str,
+    org_slug: str,
+    rtype: str,
+    from_id: str,
+    to_id: str,
+    op: str = "add",
+    expected_version: str | None = None,
+) -> dict:
+    """Add or remove a relationships[] entry.
+
+    `op` is "add" or "remove". For "add", a relationship row
+    `{type: rtype, from: from_id, to: to_id}` is appended (idempotent —
+    if an identical row already exists, the call is a no-op succeeded).
+    For "remove", any matching `(type, from, to)` rows are dropped.
+
+    Validations:
+      - rtype must be in the known set (reports_to / directs /
+        coordinates_with / validates_for / peer_of / implements_for /
+        derives_from). Unknown types are rejected — addiing a new
+        relationship type belongs upstream in orgdef-spec, not here.
+      - For "add": from_id and to_id must resolve to sibling Position
+        items, the org's own id, or an `external:` reference. Same
+        endpoint resolution rule upload_org enforces.
+      - For "remove": no endpoint validation (idempotent cleanup).
+    """
+    if rtype not in _KNOWN_RELATIONSHIP_TYPES:
+        raise ValueError(
+            f"rtype must be one of {sorted(_KNOWN_RELATIONSHIP_TYPES)}; "
+            f"got {rtype!r}. Adding a new relationship type belongs "
+            f"upstream in orgdef-spec."
+        )
+    if op not in ("add", "remove"):
+        raise ValueError(f"op must be 'add' or 'remove'; got {op!r}")
+    if not isinstance(from_id, str) or not from_id:
+        raise ValueError("from_id must be a non-empty string")
+    if not isinstance(to_id, str) or not to_id:
+        raise ValueError("to_id must be a non-empty string")
+
+    role_id, account_id = _resolve_account_for_session(session_token)
+    artifact = _load_artifact_for_edit(account_id, org_slug, expected_version)
+
+    content = artifact["content"]
+    items = content.get("items") or []
+    position_ids = {
+        it["id"] for it in items
+        if isinstance(it, dict) and it.get("type") == "orgdef:Position"
+    }
+    org_self_id = content.get("id")
+
+    def _endpoint_ok(ep: str) -> bool:
+        return (
+            ep in position_ids
+            or ep == org_self_id
+            or ep.startswith("external:")
+        )
+
+    if op == "add":
+        if not _endpoint_ok(from_id):
+            raise ValueError(
+                f"from_id {from_id!r} does not resolve to a sibling "
+                f"Position, the org's own id, or an 'external:' reference"
+            )
+        if not _endpoint_ok(to_id):
+            raise ValueError(
+                f"to_id {to_id!r} does not resolve to a sibling "
+                f"Position, the org's own id, or an 'external:' reference"
+            )
+
+    relationships = content.get("relationships") or []
+    if op == "add":
+        already = any(
+            isinstance(r, dict)
+            and r.get("type") == rtype
+            and r.get("from") == from_id
+            and r.get("to") == to_id
+            for r in relationships
+        )
+        if already:
+            # Idempotent no-op — return the receipt without bumping
+            # version. Audit row also skipped (nothing changed).
+            return {
+                "artifact_id": artifact["id"],
+                "org_slug": artifact["org_slug"],
+                "version_before": artifact["version"],
+                "version_after": artifact["version"],
+                "edit_log_id": None,
+                "applied_fields": [],
+            }
+        new_relationships = list(relationships) + [
+            {"type": rtype, "from": from_id, "to": to_id}
+        ]
+        applied = [f"+edge:{rtype}:{from_id}->{to_id}"]
+        summary = f"update_relationship add {rtype} {from_id}→{to_id}"
+    else:  # remove
+        new_relationships = [
+            r for r in relationships
+            if not (
+                isinstance(r, dict)
+                and r.get("type") == rtype
+                and r.get("from") == from_id
+                and r.get("to") == to_id
+            )
+        ]
+        removed = len(relationships) - len(new_relationships)
+        if not removed:
+            # Idempotent no-op for unknown edges; same shape as add.
+            return {
+                "artifact_id": artifact["id"],
+                "org_slug": artifact["org_slug"],
+                "version_before": artifact["version"],
+                "version_after": artifact["version"],
+                "edit_log_id": None,
+                "applied_fields": [],
+            }
+        applied = [f"-edge:{rtype}:{from_id}->{to_id}"]
+        summary = f"update_relationship remove {rtype} {from_id}→{to_id}"
+
+    new_content = dict(content)
+    new_content["relationships"] = new_relationships
+    new_content["version"] = _bump_semver(
+        content.get("version", "0.0.0"), "patch"
+    )
+
+    return _save_artifact_after_edit(
+        artifact,
+        new_content,
+        tool_name="update_relationship",
+        patch_summary=summary,
+        edited_by_role_id=role_id,
+        applied_fields=applied,
+    )

@@ -33,15 +33,18 @@ from pydantic import BaseModel, Field
 from server.canonical_json import canonicalize, sha256_hex
 from server.db import account_by_handle, artifact_by_account_and_slug
 from server.tool_impls import (
+    tool_add_position_impl,
     tool_auth_with_pin_impl,
     tool_bump_version_impl,
     tool_claim_role_impl,
+    tool_delete_position_impl,
     tool_list_inbox_impl,
     tool_mark_read_impl,
     tool_read_memo_impl,
     tool_send_memo_impl,
     tool_update_org_metadata_impl,
     tool_update_position_impl,
+    tool_update_relationship_impl,
     tool_upload_org_impl,
 )
 
@@ -278,6 +281,42 @@ class EditReceipt(BaseModel):
     applied_fields: list[str] = []
 
 
+class AddPositionRequest(BaseModel):
+    org_slug: str = Field(..., description="URL slug of the opencatalog.")
+    position: dict = Field(
+        ...,
+        description=(
+            "Full new orgdef:Position item dict (id, name, optional "
+            "fields). Type set to 'orgdef:Position' if absent."
+        ),
+    )
+    expected_version: str | None = Field(None)
+
+
+class DeletePositionRequest(BaseModel):
+    org_slug: str
+    position_id: str
+    expected_version: str | None = Field(None)
+
+
+class UpdateRelationshipRequest(BaseModel):
+    org_slug: str
+    rtype: str = Field(
+        ...,
+        description=(
+            "Relationship type: reports_to | directs | coordinates_with | "
+            "validates_for | peer_of | implements_for | derives_from"
+        ),
+    )
+    from_id: str
+    to_id: str
+    op: str = Field(
+        "add",
+        description="add | remove. Both idempotent.",
+    )
+    expected_version: str | None = Field(None)
+
+
 # --- Routes -----------------------------------------------------------------
 
 
@@ -466,6 +505,69 @@ async def rest_bump_version(
             session_token=creds.credentials,
             org_slug=req.org_slug,
             kind=req.kind,
+            expected_version=req.expected_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@api.post(
+    "/add_position",
+    response_model=EditReceipt,
+    summary="Add a new orgdef:Position item to an opencatalog",
+)
+async def rest_add_position(
+    req: AddPositionRequest,
+    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+) -> dict:
+    try:
+        return await tool_add_position_impl(
+            session_token=creds.credentials,
+            org_slug=req.org_slug,
+            position=req.position,
+            expected_version=req.expected_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@api.post(
+    "/delete_position",
+    response_model=EditReceipt,
+    summary="Delete an orgdef:Position item (blocked by active sessions)",
+)
+async def rest_delete_position(
+    req: DeletePositionRequest,
+    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+) -> dict:
+    try:
+        return await tool_delete_position_impl(
+            session_token=creds.credentials,
+            org_slug=req.org_slug,
+            position_id=req.position_id,
+            expected_version=req.expected_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@api.post(
+    "/update_relationship",
+    response_model=EditReceipt,
+    summary="Add or remove a relationships[] entry",
+)
+async def rest_update_relationship(
+    req: UpdateRelationshipRequest,
+    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+) -> dict:
+    try:
+        return await tool_update_relationship_impl(
+            session_token=creds.credentials,
+            org_slug=req.org_slug,
+            rtype=req.rtype,
+            from_id=req.from_id,
+            to_id=req.to_id,
+            op=req.op,
             expected_version=req.expected_version,
         )
     except ValueError as e:
