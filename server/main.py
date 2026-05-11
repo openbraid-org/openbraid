@@ -32,6 +32,7 @@ from server.tool_impls import (
     tool_add_position_impl,
     tool_auth_with_pin_impl,
     tool_bump_version_impl,
+    tool_claim_org_create_impl,
     tool_claim_role_impl,
     tool_delete_position_impl,
     tool_list_inbox_impl,
@@ -93,6 +94,45 @@ async def claim_role(
     """
     return await tool_claim_role_impl(
         position_url=position_url,
+        claim_what=claim_what,
+        client_session_id=ctx.session_id or "",
+    )
+
+
+@mcp.tool()
+async def claim_org_create(
+    account_handle: str,
+    ctx: Context,
+    claim_what: str = "Create a new openbraid organization",
+) -> dict:
+    """Begin a ceremony to create a new openbraid organization for an
+    account.
+
+    Use this when the user wants to create their first org (or any
+    new org) and you don't already have a session_token. Mirrors the
+    PIN-ceremony shape of `claim_role` but works at the account level
+    rather than position level.
+
+    After this call, ask the user for the 9-digit PIN that appears in
+    their openbraid panel (https://www.openbraid.app/panel/roles), then
+    call `auth_with_pin(challenge_id, pin)`. The resulting session_token
+    works for `upload_org` and any other account-level tool.
+
+    Args:
+        account_handle: The user's openbraid handle (typically the
+            email-localpart of their signup email; e.g. "scott" for
+            scott@example.com). Ask the user if unsure.
+        claim_what: Human-readable description shown in the panel so
+            the user understands what they're authorizing. Defaults
+            to "Create a new openbraid organization".
+
+    Returns:
+        dict with: challenge_id (str), expires_at (ISO-8601), message
+        (instruction for the AI to relay to the user about reading
+        the PIN from their panel).
+    """
+    return await tool_claim_org_create_impl(
+        account_handle=account_handle,
         claim_what=claim_what,
         client_session_id=ctx.session_id or "",
     )

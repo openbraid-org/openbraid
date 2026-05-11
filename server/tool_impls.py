@@ -17,6 +17,8 @@ No behavior change in the extraction step itself.
 from __future__ import annotations
 
 from server.db import (
+    account_by_handle,
+    ensure_org_create_role,
     generate_pin,
     generate_session_token,
     get_role_id_from_token,
@@ -63,6 +65,68 @@ async def tool_claim_role_impl(
             f"'{role_name}' ({claim_what}). Ask them to read the 9-digit "
             f"PIN from their openbraid panel and give it to you, then "
             f"call auth_with_pin."
+        ),
+    }
+
+
+async def tool_claim_org_create_impl(
+    account_handle: str,
+    claim_what: str,
+    client_session_id: str,
+) -> dict:
+    """Begin an org-create ceremony for an account.
+
+    Mirrors `tool_claim_role_impl` but works at the account level
+    rather than the position level. Lets a fresh user create their
+    first org (or any subsequent org) via the standard PIN ceremony
+    without first having to claim a position role.
+
+    Internally: looks up the account by handle, ensures the synthetic
+    bootstrap role exists (`<handle>/__org-create__`), generates a
+    9-digit PIN against that role, returns the challenge id + relay
+    instructions. The PIN surfaces in the user's openbraid panel like
+    any other PIN; they read it back to the AI, which calls
+    `auth_with_pin` (unchanged) to mint a session_token. That token
+    works against `upload_org` (and any other account-level tool)
+    because it resolves through the standard role -> account chain.
+    """
+    if not isinstance(account_handle, str) or not account_handle:
+        raise ValueError("account_handle must be a non-empty string")
+
+    account = account_by_handle(account_handle)
+    if not account:
+        raise ValueError(
+            f"No openbraid account found for handle {account_handle!r}. "
+            f"Confirm the handle (email-localpart of the signup email) "
+            f"or visit openbraid.app/panel to sign in first."
+        )
+
+    role_id = ensure_org_create_role(account["id"], account_handle)
+    pin = generate_pin()
+
+    result = (
+        supabase()
+        .table("pin_challenges")
+        .insert(
+            {
+                "role_id": role_id,
+                "pin": pin,
+                "client_session_id": client_session_id,
+                "claim_what": claim_what,
+            }
+        )
+        .execute()
+    )
+    row = result.data[0]
+    return {
+        "challenge_id": row["id"],
+        "expires_at": row["expires_at"],
+        "message": (
+            f"Tell the user: openbraid is requesting authorization to "
+            f"{claim_what}. Ask them to read the 9-digit PIN from their "
+            f"openbraid panel at https://www.openbraid.app/panel/roles "
+            f"(the org-create PIN is shown in its own card near the top "
+            f"of the page) and give it to you, then call auth_with_pin."
         ),
     }
 

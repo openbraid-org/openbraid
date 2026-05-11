@@ -23,6 +23,7 @@ client = TestClient(api)
 
 EXPECTED_ROUTES = {
     "/claim_role",
+    "/claim_org_create",
     "/auth_with_pin",
     "/send_memo",
     "/list_inbox",
@@ -53,6 +54,7 @@ AUTH_REQUIRED = {
 }
 AUTH_NOT_REQUIRED = {
     "/claim_role",
+    "/claim_org_create",
     "/auth_with_pin",
     "/export/{account}/{org_slug}",
 }

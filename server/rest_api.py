@@ -36,6 +36,7 @@ from server.tool_impls import (
     tool_add_position_impl,
     tool_auth_with_pin_impl,
     tool_bump_version_impl,
+    tool_claim_org_create_impl,
     tool_claim_role_impl,
     tool_delete_position_impl,
     tool_list_inbox_impl,
@@ -106,6 +107,29 @@ class ClaimRoleRequest(BaseModel):
 
 
 class ClaimRoleResponse(BaseModel):
+    challenge_id: str
+    expires_at: str
+    message: str
+
+
+class ClaimOrgCreateRequest(BaseModel):
+    account_handle: str = Field(
+        ...,
+        description=(
+            "The user's openbraid handle (email-localpart of their "
+            "signup email)."
+        ),
+    )
+    claim_what: str = Field(
+        "Create a new openbraid organization",
+        description=(
+            "Human-readable description shown in the panel so the user "
+            "understands what they're authorizing."
+        ),
+    )
+
+
+class ClaimOrgCreateResponse(BaseModel):
     challenge_id: str
     expires_at: str
     message: str
@@ -329,6 +353,22 @@ async def rest_claim_role(req: ClaimRoleRequest, request: Request) -> dict:
     try:
         return await tool_claim_role_impl(
             position_url=req.position_url,
+            claim_what=req.claim_what,
+            client_session_id=_client_session_id(request),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@api.post(
+    "/claim_org_create",
+    response_model=ClaimOrgCreateResponse,
+    summary="Begin a ceremony to create a new openbraid org for an account",
+)
+async def rest_claim_org_create(req: ClaimOrgCreateRequest, request: Request) -> dict:
+    try:
+        return await tool_claim_org_create_impl(
+            account_handle=req.account_handle,
             claim_what=req.claim_what,
             client_session_id=_client_session_id(request),
         )
