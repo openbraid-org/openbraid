@@ -1,0 +1,59 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-engineer",
+  "to": "openbraid-engineer",
+  "subject": "Phase F mid-handoff — F0, F3, F4 shipped; F1/F2/F5 + Phase G outstanding",
+  "sent": "2026-05-11T11:40:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-11-0030--openbraid-strategist--openbraid-engineer--phase-f-kickoff-artifact-claimability-then-panel-ux.openthing",
+
+  "body": "Phase F partial handoff for strategist consultation. Three of six sub-phases shipped: F0 (artifact-position claimability — the Phase E completion item; builds 22-23-26 across PRs 28/29/30/31/32), F3 (role management UI refresh + vacant positions follow-up; builds 24-25-26), and F4 (consolidated /panel/roles live control panel; build 27, PR 33). All seven F0 acceptance-criteria items verified end-to-end in production via thingalog/implementer claim ceremony. F1 (memo browser), F2 (notes browser create/edit), F5 (mirror-list viz) outstanding; F5 is speculative since x.org.org_location data doesn't exist yet. Phase G (self-host docs) untouched. Director consulting openbraid-strategist on sequencing. body_ref has the per-sub-phase disposition, hotfix-trail, acceptance-criteria report, and what's deferred.",
+  "body_ref": "2026-05-11-1140--openbraid-engineer--openbraid-engineer--phase-f-mid-handoff.body.md",
+
+  "metadata": {
+    "phase_f_disposition": "F0 + F3 + F4 shipped; F1, F2, F5 outstanding; Phase G untouched",
+    "current_build": 27,
+    "test_count": 108,
+    "phase_f_sub_disposition": {
+      "F0_artifact_claimability": "live (build 22 + hotfix build 23 + import-hotfix build 26)",
+      "F1_memo_browser": "outstanding",
+      "F2_notes_browser_create_edit": "outstanding (depends on F1 template)",
+      "F3_role_management_ui": "live (build 24 + vacant-positions follow-up build 25 + hotfix build 26)",
+      "F4_session_revoke": "live (consolidated into /panel/roles as the live control surface; build 27)",
+      "F5_mirror_list_viz": "deferred — no x.org.org_location mirror data exists yet"
+    },
+    "f0_acceptance_criteria_status": "7/7 met (thingalog/implementer claim → PIN → auth → send_memo to=file → list_inbox notes → boot payload shows incumbent.type ai-session-arc with active_session_count=1)",
+    "production_changes_summary": {
+      "new_routes": [
+        "GET /panel/roles/{role_id}/live (HTMX fragment, polled 2s)",
+        "POST /panel/sessions/{session_id}/revoke",
+        "POST /panel/roles/{role_id}/delete"
+      ],
+      "removed_routes": [],
+      "redirected_routes": ["/panel → /panel/roles"],
+      "schema_migrations_applied": [
+        "0009_incumbents.sql (F0)",
+        "0010_canonical_role_names.sql (F0 review feedback)",
+        "0011_roles_org_id_nullable.sql (F0 hotfix build 23)"
+      ]
+    },
+    "hotfix_trail": {
+      "build_23": "roles.org_id NOT NULL blocked ensure_artifact_bound_role insert; ALTER COLUMN DROP NOT NULL",
+      "build_26": "missing artifacts_for_account import in panel.py caused 500 on /panel/roles; import fix + new tests/test_panel_smoke.py guards (module-imports / ruff F821 / handler-runs-with-mocks) to catch this class of regression next time"
+    },
+    "deferred_items": [
+      "Cross-spec canonical-JSON spec coordination (orgdef-strategist not yet signaling interest)",
+      "Vacate-binding affordance for artifact-bound roles (no use case yet; auth_session expiry is natural lifecycle per Director's lean)",
+      "F5 mirror-list viz (no x.org.org_location chains in any current org)"
+    ],
+    "open_strategist_questions": [
+      "F1 first vs Phase G first?",
+      "F2 as part of F1 PR or as follow-up?",
+      "Should F5 stay in Phase F scope or move to G+?"
+    ]
+  }
+}
