@@ -367,10 +367,37 @@ async def roles_page(request: Request):
         .execute()
     )
 
-    # Build a {org_id: org_name} map so each role gets its org's name
-    # for the canonical URL + recommended-prompt template.
-    orgs = orgs_for_account(account_id)
-    org_names = {o["id"]: o["name"] for o in orgs}
+    # Resolve incumbents bindings for this account so we know which
+    # roles are artifact-bound (Phase F F0). Each row: claimed_role_id
+    # → org_artifact_id; we map further to org_slug for display.
+    incumbents_rows = (
+        supabase()
+        .table("incumbents")
+        .select("claimed_role_id, org_artifact_id")
+        .eq("account_id", account_id)
+        .is_("ended_at", "null")
+        .execute()
+    )
+    artifact_slug_by_role_id: dict[str, str] = {}
+    if incumbents_rows.data:
+        artifact_ids = list({r["org_artifact_id"] for r in incumbents_rows.data})
+        artifact_lookup = (
+            supabase()
+            .table("org_artifacts")
+            .select("id, org_slug")
+            .in_("id", artifact_ids)
+            .execute()
+        )
+        slug_by_artifact = {a["id"]: a["org_slug"] for a in artifact_lookup.data or []}
+        for row in incumbents_rows.data:
+            slug = slug_by_artifact.get(row["org_artifact_id"])
+            if slug:
+                artifact_slug_by_role_id[row["claimed_role_id"]] = slug
+
+    # Phase F F0 + migration 0010: role.name is now the full canonical
+    # URL path (`<handle>/<org_slug>/<position_id>`). Surface the short
+    # position id prominently and keep the full canonical name as a
+    # secondary line so adopters can copy it for memos / cross-refs.
     handle = (user.get("email") or "").split("@", 1)[0] or "unknown"
     mcp_base = _mcp_origin()
 
@@ -394,8 +421,20 @@ async def roles_page(request: Request):
             .limit(1)
             .execute()
         )
-        org_name = org_names.get(role.get("org_id"), "personal")
-        canonical_url = f"{mcp_base}/{handle}/{org_name}/{role['name']}"
+
+        is_artifact_bound = role["id"] in artifact_slug_by_role_id
+        # role.name is "<handle>/<org_slug>/<position_id>" post-0010;
+        # split into parts so we can render org + position cleanly.
+        name_parts = role["name"].split("/", 2)
+        if len(name_parts) == 3:
+            _name_handle, org_slug, position_id = name_parts
+        else:
+            # Defensive: a row that escaped migration 0010 (shouldn't
+            # happen, but keep the page renderable).
+            org_slug, position_id = "personal", role["name"]
+        # Canonical URL is just `<mcp_base>/<role.name>` since role.name
+        # already encodes the full path.
+        canonical_url = f"{mcp_base}/{role['name']}"
         recommended_prompt = (
             f"Please claim role: {canonical_url} via the openbraid mcp "
             f"connector, and review the existing notes and memos. "
@@ -404,7 +443,9 @@ async def roles_page(request: Request):
         enriched.append(
             {
                 **role,
-                "org_name": org_name,
+                "org_name": org_slug,
+                "position_id": position_id,
+                "is_artifact_bound": is_artifact_bound,
                 "canonical_url": canonical_url,
                 "recommended_prompt": recommended_prompt,
                 "last_access": last_session.data[0]["created_at"]
@@ -509,6 +550,69 @@ async def roles_create(request: Request):
     )
 
 
+async def role_delete(request: Request):
+    """Soft-delete a legacy role (Phase F F3).
+
+    Sets `roles.deleted_at = now()` for the role, scoped to the
+    signed-in account. Idempotent: a re-attempt against an already-
+    deleted row is a no-op redirect.
+
+    Artifact-bound roles (those with a live incumbents binding) are
+    NOT deletable from this affordance — the artifact's position is
+    the canonical seat; deleting the synthetic role row would orphan
+    the binding. Future affordance ("vacate") would end the binding
+    cleanly; for now those return an error redirect.
+    """
+    user = await _current_user(request)
+    if not user:
+        return RedirectResponse("/", status_code=303)
+
+    account_id = _account_id_for_user(user)
+    if not account_id:
+        return RedirectResponse("/panel/roles", status_code=303)
+
+    role_id = request.path_params["role_id"]
+
+    role_check = (
+        supabase()
+        .table("roles")
+        .select("id, name")
+        .eq("id", role_id)
+        .eq("account_id", account_id)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    if not role_check.data:
+        return RedirectResponse("/panel/roles", status_code=303)
+    role_name = role_check.data[0]["name"]
+
+    # Reject if role has a live incumbents binding — those are
+    # artifact-bound and should be ended via the (future) vacate
+    # affordance, not deleted.
+    incumbent_check = (
+        supabase()
+        .table("incumbents")
+        .select("id")
+        .eq("claimed_role_id", role_id)
+        .is_("ended_at", "null")
+        .execute()
+    )
+    from urllib.parse import quote_plus
+
+    if incumbent_check.data:
+        return RedirectResponse(
+            f"/panel/roles?error="
+            f"{quote_plus(f'{role_name} is artifact-bound; soft-delete is for legacy roles only')}",
+            status_code=303,
+        )
+
+    supabase().table("roles").update({"deleted_at": "now()"}).eq("id", role_id).execute()
+    return RedirectResponse(
+        f"/panel/roles?notice={quote_plus(f'Deleted role: {role_name}')}",
+        status_code=303,
+    )
+
+
 async def role_notes_page(request: Request):
     """Read-only notes browser for a specific role.
 
@@ -589,5 +693,6 @@ panel_routes = [
     Route("/panel/pins", pin_list),
     Route("/panel/roles", roles_page),
     Route("/panel/roles/new", roles_create, methods=["POST"]),
+    Route("/panel/roles/{role_id}/delete", role_delete, methods=["POST"]),
     Route("/panel/roles/{role_id}/notes", role_notes_page),
 ]
