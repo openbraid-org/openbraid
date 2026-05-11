@@ -1,5 +1,6 @@
-{# F-chart side panel for a clicked position. Reused for vacant and #}
-{# claimed states; the branching is on `incumbent` presence. #}
+{# F-chart-2 side panel: full position-level + embedded-job drill-down. #}
+{# Sections appear only when their source field is present in the artifact #}
+{# (graceful absent-handling per openbraid-strategist note 3). #}
 
 <style scoped>
     .pos-title {
@@ -33,18 +34,46 @@
         color: var(--notice);
         border: 1px solid var(--notice);
     }
-    .pos-section { margin-top: 1rem; }
+    .pos-badge.readonly {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+    }
+    .pos-section {
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+    }
+    .pos-section.first {
+        border-top: none;
+        padding-top: 0;
+    }
     .pos-section .label {
         font-size: 0.7rem;
         color: var(--muted);
         text-transform: uppercase;
         letter-spacing: 0.08em;
         margin-bottom: 0.4rem;
+        font-weight: 600;
     }
     .pos-description {
         font-size: 0.85rem;
         color: var(--fg);
+        line-height: 1.55;
+    }
+    .pos-description.dim {
+        color: var(--muted);
+        font-size: 0.8rem;
+    }
+    .pos-field-list {
+        margin: 0;
+        padding-left: 1.2rem;
+        font-size: 0.85rem;
+        color: var(--fg);
         line-height: 1.5;
+    }
+    .pos-field-list li {
+        margin-bottom: 0.3rem;
     }
     .canonical-url {
         font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -96,6 +125,68 @@
         color: var(--error);
         border-color: var(--error);
     }
+    .roledef-link {
+        color: var(--muted);
+        text-decoration: none;
+        border-bottom: 1px dotted var(--muted);
+    }
+    .roledef-link:hover {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+    }
+    details.job-deep {
+        margin-top: 0.5rem;
+    }
+    details.job-deep > summary {
+        cursor: pointer;
+        color: var(--accent);
+        font-size: 0.8rem;
+        font-weight: 600;
+        list-style: none;
+        user-select: none;
+    }
+    details.job-deep > summary::before {
+        content: "▸ ";
+        display: inline-block;
+        transition: transform 0.15s;
+    }
+    details.job-deep[open] > summary::before {
+        transform: rotate(90deg);
+    }
+    .job-field {
+        margin-top: 0.7rem;
+    }
+    .job-field .label {
+        font-size: 0.65rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.3rem;
+        font-weight: 600;
+    }
+    .job-prose {
+        font-size: 0.8rem;
+        line-height: 1.55;
+        color: var(--fg);
+        white-space: pre-wrap;
+    }
+    .output-contract-item {
+        padding: 0.5rem 0.7rem;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid var(--border);
+        border-radius: 0.25rem;
+        margin-bottom: 0.4rem;
+        font-size: 0.8rem;
+    }
+    .output-contract-item .oc-name {
+        font-weight: 600;
+        color: var(--fg);
+        margin-bottom: 0.2rem;
+    }
+    .output-contract-item .oc-desc {
+        color: var(--muted);
+        line-height: 1.4;
+    }
 </style>
 
 <h3 class="pos-title">
@@ -105,42 +196,199 @@
     {% else %}
     <span class="pos-badge vacant">vacant</span>
     {% endif %}
+    {% if not is_editable %}
+    <span class="pos-badge readonly" title="This org is mirrored from an upstream master; openbraid renders read-only.">read-only</span>
+    {% endif %}
 </h3>
 <div class="pos-id">{{ position.id }}</div>
 
-{% if position.description %}
-<div class="pos-section">
-    <div class="label">Description</div>
+{# --- Position Description (composite of position-level fields) ----------- #}
+{% set has_desc = position.summary or position.description or position.responsibilities or position.deliverables or position.decision_authority or position.communication_register or position.success_indicators %}
+{% if has_desc %}
+<div class="pos-section first">
+    <div class="label">Position description</div>
+    {% if position.summary %}
+    <div class="pos-description">{{ position.summary }}</div>
+    {% elif position.description %}
     <div class="pos-description">{{ position.description }}</div>
+    {% endif %}
+
+    {% if position.responsibilities %}
+    <div class="job-field">
+        <div class="label">Responsibilities</div>
+        <ul class="pos-field-list">
+            {% for r in position.responsibilities %}<li>{{ r }}</li>{% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if position.deliverables %}
+    <div class="job-field">
+        <div class="label">Deliverables</div>
+        <ul class="pos-field-list">
+            {% for d in position.deliverables %}<li>{{ d }}</li>{% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if position.decision_authority %}
+    <div class="job-field">
+        <div class="label">Decision authority</div>
+        <div class="pos-description">{{ position.decision_authority }}</div>
+    </div>
+    {% endif %}
+
+    {% if position.communication_register %}
+    <div class="job-field">
+        <div class="label">Communication register</div>
+        <div class="pos-description">{{ position.communication_register }}</div>
+    </div>
+    {% endif %}
+
+    {% if position.success_indicators %}
+    <div class="job-field">
+        <div class="label">Success indicators</div>
+        <ul class="pos-field-list">
+            {% for s in position.success_indicators %}<li>{{ s }}</li>{% endfor %}
+        </ul>
+    </div>
+    {% endif %}
 </div>
 {% endif %}
 
+{# --- Role Definition (canonical roledef reference) ---------------------- #}
 {% if position.role_definition %}
 <div class="pos-section">
     <div class="label">Role definition</div>
-    <div class="pos-description" style="font-size: 0.8rem">
-        {{ position.role_definition.id }}
-        {% if position.role_definition.url %}
-        · <a href="{{ position.role_definition.url }}" target="_blank" style="color: var(--muted);">spec</a>
-        {% endif %}
+    <div class="pos-description dim" style="margin-bottom: 0.3rem">
+        This position specializes the canonical role
+        {% if position.role_definition.id %}<strong style="color: var(--fg)">{{ position.role_definition.id }}</strong>{% endif %}
+        {% if position.role_definition.version %}<span style="color: var(--muted)"> · v{{ position.role_definition.version }}</span>{% endif %}.
     </div>
+    {% if position.role_definition.url %}
+    <a href="{{ position.role_definition.url }}" class="roledef-link" target="_blank" rel="noopener">
+        {{ position.role_definition.url }}
+    </a>
+    {% endif %}
 </div>
 {% endif %}
 
+{# --- Job Definition deep drill-down for embedded Job items --------------- #}
 {% if job %}
 <div class="pos-section">
     <div class="label">Job definition</div>
-    <div class="pos-description" style="font-size: 0.8rem">
-        {{ job.name or job.id }} (v{{ job.version }})
+    <div class="pos-description" style="font-weight: 600">
+        {{ job.name or job.id }}{% if job.version %} <span style="font-weight: 400; color: var(--muted)">· v{{ job.version }}</span>{% endif %}
     </div>
+    <details class="job-deep">
+        <summary>Show full job content</summary>
+        {% if job.charter %}
+        <div class="job-field">
+            <div class="label">Charter</div>
+            <div class="job-prose">{{ job.charter }}</div>
+        </div>
+        {% endif %}
+        {% if job.identity %}
+        <div class="job-field">
+            <div class="label">Identity</div>
+            <div class="job-prose">{{ job.identity }}</div>
+        </div>
+        {% endif %}
+        {% if job.voice %}
+        <div class="job-field">
+            <div class="label">Voice</div>
+            <div class="job-prose">{{ job.voice }}</div>
+        </div>
+        {% endif %}
+        {% if job.output_contract %}
+        <div class="job-field">
+            <div class="label">Output contract</div>
+            {% if job.output_contract is iterable and job.output_contract is not string %}
+                {% for item in job.output_contract %}
+                    {% if item is mapping %}
+                    <div class="output-contract-item">
+                        <div class="oc-name">{{ item.name or '(unnamed)' }}</div>
+                        {% if item.description %}<div class="oc-desc">{{ item.description }}</div>{% endif %}
+                        {% if item.format %}<div class="oc-desc" style="margin-top: 0.2rem">Format: {{ item.format }}</div>{% endif %}
+                    </div>
+                    {% else %}
+                    <div class="output-contract-item"><div class="oc-desc">{{ item }}</div></div>
+                    {% endif %}
+                {% endfor %}
+            {% else %}
+            <div class="job-prose">{{ job.output_contract }}</div>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if job.guardrails %}
+        <div class="job-field">
+            <div class="label">Guardrails</div>
+            {% if job.guardrails is iterable and job.guardrails is not string %}
+            <ul class="pos-field-list">
+                {% for g in job.guardrails %}<li>{{ g }}</li>{% endfor %}
+            </ul>
+            {% else %}
+            <div class="job-prose">{{ job.guardrails }}</div>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if job.metadata %}
+            {% if job.metadata.role_definition %}
+            <div class="job-field">
+                <div class="label">Specializes role</div>
+                <div class="pos-description dim">{{ job.metadata.role_definition }}</div>
+            </div>
+            {% endif %}
+            {% if job.metadata.placement %}
+            <div class="job-field">
+                <div class="label">Placement</div>
+                <div class="pos-description dim">{{ job.metadata.placement }}</div>
+            </div>
+            {% endif %}
+        {% endif %}
+    </details>
+</div>
+{% elif position.job_definition and position.job_definition.url %}
+{# External Job reference — link only, don't try to fetch client-side. #}
+<div class="pos-section">
+    <div class="label">Job definition</div>
+    <div class="pos-description">
+        {% if position.job_definition.id %}<strong>{{ position.job_definition.id }}</strong>{% endif %}
+        {% if position.job_definition.version %}<span style="color: var(--muted)"> · v{{ position.job_definition.version }}</span>{% endif %}
+        {% if position.job_definition.summary %}<div class="pos-description dim" style="margin-top: 0.3rem">{{ position.job_definition.summary }}</div>{% endif %}
+    </div>
+    <a href="{{ position.job_definition.url }}" class="roledef-link" target="_blank" rel="noopener">
+        {{ position.job_definition.url }}
+    </a>
 </div>
 {% endif %}
 
+{# --- Relationships (textual; mirrors chart edges) ----------------------- #}
+{% set has_rels = rel_summary.reports_to or rel_summary.directs or rel_summary.coordinates_with or rel_summary.validates_for or rel_summary.peer_of or rel_summary.implements_for or rel_summary.derives_from or rel_summary.get('validated_by') or external_rels %}
+{% if has_rels %}
+<div class="pos-section">
+    <div class="label">Relationships</div>
+    <ul class="pos-field-list">
+        {% if rel_summary.reports_to %}<li>Reports to: {{ rel_summary.reports_to | join(", ") }}</li>{% endif %}
+        {% if rel_summary.directs %}<li>Directs: {{ rel_summary.directs | join(", ") }}</li>{% endif %}
+        {% if rel_summary.coordinates_with %}<li>Coordinates with: {{ rel_summary.coordinates_with | join(", ") }}</li>{% endif %}
+        {% if rel_summary.peer_of %}<li>Peer of: {{ rel_summary.peer_of | join(", ") }}</li>{% endif %}
+        {% if rel_summary.validates_for %}<li>Validates: {{ rel_summary.validates_for | join(", ") }}</li>{% endif %}
+        {% if rel_summary.get('validated_by') %}<li>Validated by: {{ rel_summary.validated_by | join(", ") }}</li>{% endif %}
+        {% if rel_summary.implements_for %}<li>Implements for: {{ rel_summary.implements_for | join(", ") }}</li>{% endif %}
+        {% if rel_summary.derives_from %}<li>Derives from: {{ rel_summary.derives_from | join(", ") }}</li>{% endif %}
+        {% for rtype, target in external_rels %}<li>{{ rtype | replace('_', ' ') }} → {{ target }}</li>{% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{# --- Canonical URL ------------------------------------------------------- #}
 <div class="pos-section">
     <div class="label">Canonical URL</div>
     <div class="canonical-url">{{ canonical_url }}</div>
 </div>
 
+{# --- Live state: bound role + sessions OR claim affordance --------------- #}
 {% if incumbent %}
 <div class="pos-section">
     <div class="label">Bound role</div>

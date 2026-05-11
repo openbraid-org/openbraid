@@ -42,6 +42,7 @@ from server.chart_builder import (
     build_mermaid_for_artifact,
     synthesize_legacy_org_content,
 )
+from server.master_state import detect_master_state
 from server.db import (
     account_by_handle,
     artifact_by_account_and_slug,
@@ -716,6 +717,7 @@ async def chart_page(request: Request):
     user, _account, account_handle, org_slug, content, live, kind, _ = resolved
 
     mermaid_text = build_mermaid_for_artifact(content, live=live)
+    master = detect_master_state(content)
 
     return TEMPLATES.TemplateResponse(
         request,
@@ -726,8 +728,10 @@ async def chart_page(request: Request):
             "org_slug": org_slug,
             "org_name": content.get("name") or org_slug,
             "org_mission": content.get("mission"),
+            "org_version": content.get("version"),
             "mermaid_text": mermaid_text,
             "is_legacy": kind == "legacy",
+            "master": master,
             "position_count": sum(
                 1 for it in (content.get("items") or [])
                 if isinstance(it, dict) and it.get("type") == "orgdef:Position"
@@ -851,6 +855,58 @@ async def chart_position_panel(request: Request):
 
     mcp_base = _mcp_origin()
     canonical_url = f"{mcp_base}/{account_handle}/{org_slug}/{position_id}"
+
+    # Collect relationships involving this position for the textual
+    # "Relationships" section. Filter to position↔position only;
+    # external: and org-self endpoints render in a separate
+    # "Coordinates with" line.
+    relationships = content.get("relationships") or []
+    if not isinstance(relationships, list):
+        relationships = []
+    position_ids = {
+        it.get("id") for it in (content.get("items") or [])
+        if isinstance(it, dict) and it.get("type") == "orgdef:Position"
+    }
+    rel_summary: dict[str, list[str]] = {
+        "reports_to": [],
+        "directs": [],
+        "coordinates_with": [],
+        "validates_for": [],
+        "peer_of": [],
+        "implements_for": [],
+        "derives_from": [],
+    }
+    external_rels: list[tuple[str, str]] = []
+    for rel in relationships:
+        if not isinstance(rel, dict):
+            continue
+        rtype = rel.get("type")
+        if rtype not in rel_summary:
+            continue
+        rfrom = rel.get("from")
+        rto = rel.get("to")
+        if not (isinstance(rfrom, str) and isinstance(rto, str)):
+            continue
+        # Outgoing edges from this position
+        if rfrom == position_id and rto in position_ids:
+            rel_summary[rtype].append(rto)
+        elif rfrom == position_id and isinstance(rto, str) and rto.startswith("external:"):
+            external_rels.append((rtype, rto))
+        # Incoming "directs" from a parent is essentially reports_to
+        # for this position; surface symmetrically.
+        elif rto == position_id and rtype == "directs" and rfrom in position_ids:
+            rel_summary["reports_to"].append(rfrom)
+        elif rto == position_id and rtype == "reports_to" and rfrom in position_ids:
+            rel_summary["directs"].append(rfrom)
+        elif rto == position_id and rtype in ("coordinates_with", "peer_of") and rfrom in position_ids:
+            # Symmetric edge types — surface from both endpoints
+            rel_summary[rtype].append(rfrom)
+        elif rto == position_id and rtype == "validates_for" and rfrom in position_ids:
+            # A validates_for B means B is validated by A — show on B's panel too
+            rel_summary.setdefault("validated_by", []).append(rfrom)
+
+    master = detect_master_state(content)
+
     return TEMPLATES.TemplateResponse(
         request,
         "_position_panel.html",
@@ -867,6 +923,9 @@ async def chart_position_panel(request: Request):
             "role_name": role_name,
             "sessions": sessions,
             "is_legacy": kind == "legacy",
+            "is_editable": master["is_editable"],
+            "rel_summary": rel_summary,
+            "external_rels": external_rels,
         },
     )
 
