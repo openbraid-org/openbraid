@@ -36,8 +36,8 @@ from server.db import (
     account_by_handle,
     artifact_by_account_and_slug,
     artifacts_for_account,
+    find_job_in_artifact,
     find_position_in_artifact,
-    job_artifact_by_org_and_id,
     org_by_name,
     orgs_for_account,
     position_by_name,
@@ -45,64 +45,43 @@ from server.db import (
 )
 
 
-def _resolve_job_id_from_position(position_data: dict) -> str | None:
-    """Extract the job_id a position's job_definition references, if any.
-
-    Two-step lookup: prefer the explicit `job_definition.id` field (mirrors
-    role_definition's shape per orgdef-spec); fall back to parsing the
-    terminal segment of `job_definition.url` (strip `.openthing` suffix
-    if present). Returns None when the position has no job_definition
-    or when neither form yields a usable id.
-    """
-    jd = position_data.get("job_definition")
-    if not isinstance(jd, dict):
-        return None
-    if isinstance(jd.get("id"), str) and jd["id"]:
-        return jd["id"]
-    url = jd.get("url")
-    if not isinstance(url, str) or not url:
-        return None
-    # Strip query/fragment so they don't poison the slug.
-    bare = url.split("#", 1)[0].split("?", 1)[0]
-    tail = bare.rstrip("/").rsplit("/", 1)[-1]
-    if tail.endswith(".openthing"):
-        tail = tail[: -len(".openthing")]
-    return tail or None
-
-
 def _resolve_job_definition_payload(
-    org_artifact_id: str, position_data: dict
+    artifact_content: dict, position_data: dict
 ) -> dict | None:
     """Build the `job_definition` field for an artifact-backed boot payload.
 
-    Returns None when the position has no job_definition at all. When a
-    job is referenced but not yet ingested, returns a reference shape
-    `{url, diagnostic}`. When the job IS ingested, returns the full
-    artifact content under `content` plus the reference fields so the
-    fresh agent has the entire job artifact inline.
+    Per orgdef SCHEMA v1.0.0 (.opencatalog), the job a position references
+    lives as a sibling item inside the same artifact's items[] array,
+    looked up by `position.job_definition.id`. We embed the full Job
+    item inline when present. If the position carries `job_definition`
+    but no matching sibling Job exists (and no external URL is declared),
+    return a reference shape with a diagnostic.
     """
     jd = position_data.get("job_definition")
     if not isinstance(jd, dict):
         return None
-    job_id = _resolve_job_id_from_position(position_data)
-    base = {"id": jd.get("id"), "version": jd.get("version"), "url": jd.get("url")}
-    if not job_id:
+    jd_id = jd.get("id")
+    base = {
+        "id": jd_id,
+        "version": jd.get("version"),
+        "url": jd.get("url"),
+    }
+    if isinstance(jd_id, str) and jd_id:
+        job_item = find_job_in_artifact(artifact_content, jd_id)
+        if job_item:
+            base["content"] = job_item
+            return base
+    if isinstance(jd.get("url"), str) and jd["url"]:
         base["diagnostic"] = (
-            "Position references a job_definition but no id or parseable "
-            "URL terminal segment is available. Upload the job via "
-            "upload_job and ensure job_definition.id matches."
+            "Job referenced via external URL; cross-bundle resolution "
+            "is deferred to E3-style on-demand fetch."
         )
         return base
-    job_row = job_artifact_by_org_and_id(org_artifact_id, job_id)
-    if not job_row:
-        base["diagnostic"] = (
-            f"Job {job_id!r} referenced by this position but not yet "
-            f"ingested. Upload it via upload_job for full inline boot context."
-        )
-        return base
-    base["content"] = job_row["content"]
-    base["artifact_id"] = job_row["id"]
-    base["resolved_version"] = job_row.get("version")
+    base["diagnostic"] = (
+        f"Position references job_definition.id={jd_id!r} but no "
+        f"sibling roledef:Job item with that id exists in this "
+        f"opencatalog. Re-upload the orgdef with the job included."
+    )
     return base
 
 
@@ -148,7 +127,7 @@ def _build_artifact_boot_payload(
         },
         "role_definition": position_data.get("role_definition"),
         "job_definition": _resolve_job_definition_payload(
-            artifact["id"], position_data
+            content, position_data
         ),
         "incumbent": {
             "active_sessions": 0,
@@ -388,7 +367,11 @@ async def account_seg2_endpoint(request: Request) -> JSONResponse:
     artifact = artifact_by_account_and_slug(account["id"], seg2)
     if artifact:
         content = artifact["content"]
-        positions = content.get("positions") or []
+        items = content.get("items") or []
+        position_items = [
+            it for it in items
+            if isinstance(it, dict) and it.get("type") == "orgdef:Position"
+        ]
         return JSONResponse(
             {
                 "account": {
@@ -415,8 +398,7 @@ async def account_seg2_endpoint(request: Request) -> JSONResponse:
                         "status": p.get("status"),
                         "role_definition": p.get("role_definition"),
                     }
-                    for p in positions
-                    if isinstance(p, dict)
+                    for p in position_items
                 ],
             }
         )

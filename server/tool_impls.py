@@ -274,57 +274,63 @@ async def tool_upload_org_impl(
     org_slug: str,
     content: dict,
 ) -> dict:
-    """Ingest an orgdef.openthing artifact as canonical content for an
-    `<account>/<org_slug>` URL.
+    """Ingest an orgdef .opencatalog artifact as canonical content for
+    an `<account>/<org_slug>` URL.
 
-    Phase E E0-prep. Per the orgdef-strategist 10:30 memo: openbraid is
-    the HOSTING layer; orgdef.openthing is the CONTENT layer. This
-    helper accepts a parsed JSON artifact, validates the catdef envelope
-    + the orgdef MUST fields, and stores the artifact byte-equivalent
-    in `org_artifacts.content` (JSONB). Round-trip on export must be
-    byte-equivalent; we store what we receive.
+    Phase E opencatalog-refactor (post orgdef SCHEMA v1.0.0). An
+    orgdef is now ONE atomic catalog: the top-level catdef envelope
+    plus an `items[]` array carrying type-tagged entries
+    (`orgdef:Position`, `roledef:Job`, optionally `roledef:Role`).
+    Jobs live INSIDE the bundle; there is no separate upload_job
+    surface. The artifact is stored byte-equivalent in JSONB.
 
-    Authorization: any session_token belonging to the uploading
-    account grants account-level ingest authority. v0 posture; tighter
-    per-account-role authorization can land in a future phase.
+    Validation runs BEFORE any DB work:
+      - catdef substrate envelope (catdef, orgdef, type, id, name, version)
+      - type MUST be "orgdef:Organization"
+      - items MUST be an array (may be empty); each item MUST carry
+        type + id (string, non-empty)
+      - internal consistency:
+          - every Position.job_definition.id resolves to a sibling
+            roledef:Job item with the same id (unless the position
+            carries an explicit URL declaring external resolution)
+          - every relationships[].from / .to that doesn't start with
+            "external:" resolves to a sibling Position item id
 
     Args:
         session_token: From a successful `auth_with_pin`. The role's
             account is the upload owner.
-        org_slug: URL slug for the org. Used in canonical URLs:
-            `mcp.openbraid.app/<account>/<org_slug>/<position>`.
-            SHOULD match `content["id"]`; we don't enforce equality
-            because adopters may prefer a friendlier slug than the
-            artifact's id field, but a mismatch is a Pass-with-notes
-            concern surfaced in the response.
-        content: The orgdef.openthing artifact as a parsed dict.
-            Stored as JSONB; must round-trip byte-equivalent.
+        org_slug: URL slug. SHOULD equal content["id"]; mismatch
+            surfaces via `slug_id_mismatch` in the receipt.
+        content: The .opencatalog artifact as a parsed dict.
 
     Returns:
-        dict with: artifact_id (str), org_slug (str), version (str),
-        position_count (int), byte_count (int), slug_id_mismatch (bool,
-        true when org_slug != content["id"]).
-
-    Raises:
-        ValueError on validation failure with a user-presentable
-        message identifying the missing/malformed field.
+        dict with: artifact_id, org_slug, version, position_count,
+        job_count, role_count, byte_count, slug_id_mismatch.
     """
-    # Validate inputs BEFORE any DB work. Malformed input shouldn't
-    # cost a Supabase round-trip; clearer errors and cheaper rejection.
     if not isinstance(content, dict):
-        raise ValueError("content must be a JSON object (dict), got %s" % type(content).__name__)
+        raise ValueError(
+            "content must be a JSON object (dict), got %s" % type(content).__name__
+        )
     _require_field(content, "catdef", str)
     _require_field(content, "orgdef", str)
     _require_field(content, "type", str)
     if content["type"] != "orgdef:Organization":
         raise ValueError(
             f"content.type must be 'orgdef:Organization' for ingest; "
-            f"got {content['type']!r}. orgdef:Library and other types "
-            f"are out of scope for Phase E0-prep."
+            f"got {content['type']!r}."
         )
     _require_field(content, "id", str)
     _require_field(content, "name", str)
     _require_field(content, "version", str)
+
+    items = content.get("items")
+    if not isinstance(items, list):
+        raise ValueError(
+            "content.items must be an array per orgdef SCHEMA v1.0.0 "
+            f"(.opencatalog substrate); got {type(items).__name__}"
+        )
+    _validate_items(items)
+    _validate_internal_consistency(content)
 
     if not isinstance(org_slug, str) or not org_slug:
         raise ValueError("org_slug must be a non-empty string")
@@ -335,7 +341,6 @@ async def tool_upload_org_impl(
 
     slug_id_mismatch = org_slug != content["id"]
 
-    # Resolve uploader's account via the session_token → role → account chain.
     sender_role_id = get_role_id_from_token(session_token)
     role_lookup = (
         supabase()
@@ -348,10 +353,6 @@ async def tool_upload_org_impl(
         raise ValueError("Session token's role no longer exists")
     account_id = role_lookup.data[0]["account_id"]
 
-    # Upsert via select-then-update-or-insert. Postgres ON CONFLICT
-    # could express this in one statement but the supabase-py client's
-    # upsert path is awkward for partial-unique-index constraints; the
-    # explicit two-step is clearer and equally safe at v0 scale.
     existing = (
         supabase()
         .table("org_artifacts")
@@ -362,7 +363,6 @@ async def tool_upload_org_impl(
         .execute()
     )
     if existing.data:
-        # Update in place; preserves the artifact_id for stable URLs.
         artifact_id = existing.data[0]["id"]
         supabase().table("org_artifacts").update(
             {
@@ -387,13 +387,16 @@ async def tool_upload_org_impl(
         )
         artifact_id = inserted.data[0]["id"]
 
-    # Count positions for the receipt. Spec says positions is an array
-    # (may be empty for charter-only orgs).
-    positions = content.get("positions") or []
-    position_count = len(positions) if isinstance(positions, list) else 0
+    position_count = sum(
+        1 for it in items if isinstance(it, dict) and it.get("type") == "orgdef:Position"
+    )
+    job_count = sum(
+        1 for it in items if isinstance(it, dict) and it.get("type") == "roledef:Job"
+    )
+    role_count = sum(
+        1 for it in items if isinstance(it, dict) and it.get("type") == "roledef:Role"
+    )
 
-    # byte_count is approximate (JSON re-serialization); useful for
-    # caller-side sanity ("the upload landed").
     import json
     byte_count = len(json.dumps(content, separators=(",", ":")))
 
@@ -402,148 +405,95 @@ async def tool_upload_org_impl(
         "org_slug": org_slug,
         "version": content["version"],
         "position_count": position_count,
+        "job_count": job_count,
+        "role_count": role_count,
         "byte_count": byte_count,
         "slug_id_mismatch": slug_id_mismatch,
     }
 
 
-async def tool_upload_job_impl(
-    session_token: str,
-    org_slug: str,
-    content: dict,
-) -> dict:
-    """Ingest a roledef:Job artifact, scoped to an existing org_artifact.
-
-    Phase E E2. Jobs are the "what does this seat actually produce"
-    layer that hangs off an orgdef position's `job_definition.url`. We
-    store them in `job_artifacts` parallel to `org_artifacts`, scoped
-    to the owning org via FK. The artifact's `id` becomes the job's
-    URL-resolvable slug (e.g. "implementer" for an
-    /scott/thingalog/implementer-shaped job).
-
-    Per the orgdef-strategist canonical-store principle, the artifact
-    is stored byte-equivalent for E5 round-trip; the indexed columns
-    (org_artifact_id, job_id, version) are derived-from-content.
-
-    Authorization: identical to upload_org — any session_token from a
-    role belonging to the org_artifact's owning account grants ingest
-    authority for that org's jobs.
-
-    Args:
-        session_token: From a successful `auth_with_pin`.
-        org_slug: The owning org's URL slug (must already be uploaded
-            via upload_org; jobs cannot exist without a parent org).
-        content: The roledef:Job artifact as a parsed dict. Stored
-            byte-equivalent; round-trip must be lossless.
-
-    Returns:
-        dict with: artifact_id (str), org_slug (str), job_id (str),
-        version (str), byte_count (int).
-
-    Raises:
-        ValueError on validation failure or when the parent org doesn't
-        exist for the uploading account.
-    """
-    if not isinstance(content, dict):
-        raise ValueError(
-            "content must be a JSON object (dict), got %s" % type(content).__name__
-        )
-    _require_field(content, "catdef", str)
-    _require_field(content, "roledef", str)
-    _require_field(content, "type", str)
-    if content["type"] != "roledef:Job":
-        raise ValueError(
-            f"content.type must be 'roledef:Job' for ingest; "
-            f"got {content['type']!r}. Use upload_org for orgdef:Organization."
-        )
-    _require_field(content, "id", str)
-    _require_field(content, "name", str)
-    _require_field(content, "version", str)
-
-    if not isinstance(org_slug, str) or not org_slug:
-        raise ValueError("org_slug must be a non-empty string")
-    if "/" in org_slug or " " in org_slug:
-        raise ValueError(
-            f"org_slug must not contain '/' or whitespace; got {org_slug!r}"
-        )
-
-    sender_role_id = get_role_id_from_token(session_token)
-    role_lookup = (
-        supabase()
-        .table("roles")
-        .select("account_id")
-        .eq("id", sender_role_id)
-        .execute()
-    )
-    if not role_lookup.data:
-        raise ValueError("Session token's role no longer exists")
-    account_id = role_lookup.data[0]["account_id"]
-
-    # Parent-org gate: the job's org_slug must already exist as an
-    # org_artifact for this account. Jobs are scoped to orgs; uploading
-    # a job for a slug we've never heard of is rejected so the
-    # FK-violation surface is a friendly ValueError instead of a 500.
-    parent = (
-        supabase()
-        .table("org_artifacts")
-        .select("id")
-        .eq("account_id", account_id)
-        .eq("org_slug", org_slug)
-        .is_("deleted_at", "null")
-        .execute()
-    )
-    if not parent.data:
-        raise ValueError(
-            f"No org artifact found for slug {org_slug!r} on this account. "
-            f"Upload the orgdef artifact via upload_org before its jobs."
-        )
-    org_artifact_id = parent.data[0]["id"]
-    job_id = content["id"]
-
-    existing = (
-        supabase()
-        .table("job_artifacts")
-        .select("id")
-        .eq("org_artifact_id", org_artifact_id)
-        .eq("job_id", job_id)
-        .is_("deleted_at", "null")
-        .execute()
-    )
-    if existing.data:
-        artifact_id = existing.data[0]["id"]
-        supabase().table("job_artifacts").update(
-            {
-                "content": content,
-                "version": content["version"],
-                "updated_at": "now()",
-            }
-        ).eq("id", artifact_id).execute()
-    else:
-        inserted = (
-            supabase()
-            .table("job_artifacts")
-            .insert(
-                {
-                    "org_artifact_id": org_artifact_id,
-                    "job_id": job_id,
-                    "content": content,
-                    "version": content["version"],
-                }
+def _validate_items(items: list) -> None:
+    """Validate each item carries non-empty type + id."""
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"items[{idx}] must be an object; got {type(item).__name__}"
             )
-            .execute()
-        )
-        artifact_id = inserted.data[0]["id"]
+        item_type = item.get("type")
+        if not isinstance(item_type, str) or not item_type:
+            raise ValueError(
+                f"items[{idx}] must carry a non-empty 'type' field"
+            )
+        item_id = item.get("id")
+        if not isinstance(item_id, str) or not item_id:
+            raise ValueError(
+                f"items[{idx}] (type={item_type!r}) must carry a "
+                f"non-empty 'id' field"
+            )
 
-    import json
-    byte_count = len(json.dumps(content, separators=(",", ":")))
 
-    return {
-        "artifact_id": artifact_id,
-        "org_slug": org_slug,
-        "job_id": job_id,
-        "version": content["version"],
-        "byte_count": byte_count,
+def _validate_internal_consistency(content: dict) -> None:
+    """Enforce SCHEMA v1.0.0 internal-consistency rules.
+
+    Two checks:
+      1. Every Position.job_definition.id resolves to a sibling
+         roledef:Job item in the same opencatalog (unless the
+         job_definition declares an explicit external URL).
+      2. Every relationships[].from/to that's not prefixed
+         "external:" resolves to a sibling Position item id.
+    """
+    items = content.get("items") or []
+    position_ids = {
+        it["id"] for it in items
+        if isinstance(it, dict) and it.get("type") == "orgdef:Position"
     }
+    job_ids = {
+        it["id"] for it in items
+        if isinstance(it, dict) and it.get("type") == "roledef:Job"
+    }
+
+    for it in items:
+        if not isinstance(it, dict) or it.get("type") != "orgdef:Position":
+            continue
+        jd = it.get("job_definition")
+        if not isinstance(jd, dict):
+            continue
+        jd_id = jd.get("id")
+        if not isinstance(jd_id, str):
+            continue
+        if jd_id in job_ids:
+            continue
+        if isinstance(jd.get("url"), str) and jd["url"]:
+            # External resolution declared; consistency check skipped.
+            continue
+        raise ValueError(
+            f"Position {it['id']!r}.job_definition.id={jd_id!r} does "
+            f"not resolve to a sibling roledef:Job item in this "
+            f"opencatalog, and no external URL is declared."
+        )
+
+    relationships = content.get("relationships") or []
+    if not isinstance(relationships, list):
+        return
+    for idx, rel in enumerate(relationships):
+        if not isinstance(rel, dict):
+            continue
+        for endpoint in ("from", "to"):
+            target = rel.get(endpoint)
+            if not isinstance(target, str) or not target:
+                continue
+            if target.startswith("external:"):
+                continue
+            # The org's own id is also a valid endpoint (the org itself
+            # is in a relationship with externals, e.g. "implements_for").
+            if target == content.get("id"):
+                continue
+            if target not in position_ids:
+                raise ValueError(
+                    f"relationships[{idx}].{endpoint}={target!r} does "
+                    f"not resolve to a sibling Position item id, the "
+                    f"org's own id, or an external: reference."
+                )
 
 
 def _require_field(obj: dict, name: str, expected_type: type) -> None:
