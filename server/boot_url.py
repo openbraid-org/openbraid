@@ -43,6 +43,43 @@ from server.db import (
     position_by_name,
     supabase,
 )
+from server.roledef_resolver import resolve_roledef
+
+
+async def _resolve_role_definition_payload(position_data: dict) -> dict | None:
+    """Build the `role_definition` field with on-demand external fetch.
+
+    Phase E E3. The position's `role_definition` is a reference of shape
+    `{id, version, url}` pointing at an external roledef artifact
+    (canonical at roledef.org). We fetch the URL, parse the JSON, and
+    embed the content inline so the fresh agent gets the full role
+    spec without making the roundtrip itself. On any fetch failure
+    (timeout, non-2xx, parse error) we return the reference shape
+    with a `diagnostic` field — the agent can choose to retry.
+
+    Returns None when the position has no role_definition at all.
+    """
+    rd = position_data.get("role_definition")
+    if not isinstance(rd, dict):
+        return None
+    base = {
+        "id": rd.get("id"),
+        "version": rd.get("version"),
+        "url": rd.get("url"),
+    }
+    url = rd.get("url")
+    if not isinstance(url, str) or not url:
+        base["diagnostic"] = (
+            "role_definition has no fetchable URL; cannot embed content "
+            "inline."
+        )
+        return base
+    content, error = await resolve_roledef(url)
+    if content is not None:
+        base["content"] = content
+    else:
+        base["diagnostic"] = error
+    return base
 
 
 def _resolve_job_definition_payload(
@@ -85,7 +122,7 @@ def _resolve_job_definition_payload(
     return base
 
 
-def _build_artifact_boot_payload(
+async def _build_artifact_boot_payload(
     account: dict,
     artifact: dict,
     position_data: dict,
@@ -93,16 +130,16 @@ def _build_artifact_boot_payload(
 ) -> dict:
     """Build the C4 boot payload from an artifact-backed position.
 
-    Phase E1-cutover: when a position resolves from `org_artifacts`
-    instead of the legacy `orgs`/`roles` tables, the boot payload's
-    `position` and `org_summary` come from the artifact's canonical
-    `content`. `role_definition` and `job_definition` are passed
-    through as references for E3/E2 to fetch later. `incumbent` and
-    `inbox_summary` are stub-shaped — full population lands when the
-    `incumbents` table maps artifact positions to openbraid roles
-    (future PR; tracked in the Phase E roadmap).
+    Phase E1-cutover + E3: position metadata and org context come from
+    the .opencatalog content; `role_definition` is fetched and embedded
+    inline by `_resolve_role_definition_payload` (E3); `job_definition`
+    is embedded from the sibling Job item in the same items[] array.
+    `incumbent` and `inbox_summary` remain stub-shaped — full
+    population lands when the `incumbents` table maps artifact
+    positions to openbraid roles (future PR).
     """
     content = artifact["content"]
+    role_definition = await _resolve_role_definition_payload(position_data)
     return {
         "position": {
             "id": position_data.get("id"),
@@ -125,7 +162,7 @@ def _build_artifact_boot_payload(
             "governance_model": content.get("governance_model"),
             "org_location": content.get("x.org.org_location"),
         },
-        "role_definition": position_data.get("role_definition"),
+        "role_definition": role_definition,
         "job_definition": _resolve_job_definition_payload(
             content, position_data
         ),
@@ -486,7 +523,7 @@ async def position_boot_endpoint(request: Request) -> JSONResponse:
             request, handle, org_name, position_name
         )
         return JSONResponse(
-            _build_artifact_boot_payload(
+            await _build_artifact_boot_payload(
                 account, artifact, position_data, canonical_url
             )
         )

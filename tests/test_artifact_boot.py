@@ -7,18 +7,34 @@ the orgdef SCHEMA v1.0.0 (.opencatalog) substrate.
 
 Three integration points:
   - account_orgs_endpoint unions artifact + legacy
-  - position_boot_endpoint reads from artifact, embeds Job items inline
+  - position_boot_endpoint reads from artifact, embeds Job items inline,
+    fetches role_definition via the resolver (mocked here)
   - account_seg2_endpoint resolves artifact slug to positions list
+
+The roledef resolver is patched in every test that exercises
+position_boot_endpoint so the suite does not touch the network.
 """
 
 from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 import server.boot_url as boot_url
+
+
+@pytest.fixture(autouse=True)
+def _stub_resolve_roledef():
+    """Stub the resolver to a fixed-shape success for every test in this
+    module — keeps assertions deterministic and avoids network."""
+    async def _stub(url):
+        return ({"type": "roledef:Role", "id": "stub", "url": url}, None)
+
+    with patch.object(boot_url, "resolve_roledef", side_effect=_stub):
+        yield
 
 JOB_ITEM = {
     "type": "roledef:Job",
@@ -115,10 +131,60 @@ async def test_position_boot_endpoint_returns_artifact_payload_when_artifact_exi
     assert body["org_summary"]["name"] == "Thingalog"
     assert body["org_summary"]["mission"] == "test mission"
     assert body["role_definition"] is not None
+    # E3 resolver embeds fetched content under role_definition.content
+    assert body["role_definition"]["content"]["type"] == "roledef:Role"
     assert body["job_definition"] is None  # no job_definition on this position
     assert body["incumbent"]["claimable"] is False
     assert "diagnostic" in body["incumbent"]
     assert body["claim_instruction"] is None
+
+
+async def test_position_boot_endpoint_role_definition_carries_diagnostic_on_fetch_failure():
+    """When the resolver returns (None, error), the role_definition
+    payload carries the reference plus diagnostic, not content."""
+    async def _failing_resolver(url):
+        return None, "roledef fetch timed out after 2.0s"
+
+    with patch.object(boot_url, "account_by_handle", return_value=FAKE_ACCOUNT), \
+         patch.object(boot_url, "artifact_by_account_and_slug", return_value=ARTIFACT_ROW), \
+         patch.object(boot_url, "resolve_roledef", side_effect=_failing_resolver):
+        request = _make_request(
+            {"account": "scott", "org": "thingalog", "position": "implementer"}
+        )
+        response = await boot_url.position_boot_endpoint(request)
+
+    import json
+    body = json.loads(response.body)
+    assert body["role_definition"]["id"] == "senior-project-oriented-software-engineer"
+    assert "content" not in body["role_definition"]
+    assert "timed out" in body["role_definition"]["diagnostic"]
+
+
+async def test_position_boot_endpoint_role_definition_diagnostic_when_no_url():
+    """A position whose role_definition has no url at all gets a
+    'no fetchable URL' diagnostic (the productowner-style human seat)."""
+    no_url_content = {
+        **ARTIFACT_CONTENT,
+        "items": [
+            {
+                "type": "orgdef:Position",
+                "id": "productowner",
+                "name": "Product Owner",
+                "role_definition": {"id": "productowner-no-url"},
+            },
+        ],
+    }
+    no_url_artifact = {**ARTIFACT_ROW, "content": no_url_content}
+    with patch.object(boot_url, "account_by_handle", return_value=FAKE_ACCOUNT), \
+         patch.object(boot_url, "artifact_by_account_and_slug", return_value=no_url_artifact):
+        request = _make_request(
+            {"account": "scott", "org": "thingalog", "position": "productowner"}
+        )
+        response = await boot_url.position_boot_endpoint(request)
+
+    import json
+    body = json.loads(response.body)
+    assert "no fetchable URL" in body["role_definition"]["diagnostic"]
 
 
 async def test_position_boot_endpoint_embeds_job_when_sibling_item_exists():
