@@ -374,6 +374,44 @@ async def test_account_seg2_endpoint_resolves_artifact_slug_to_positions_list():
     assert len(body["positions"]) == 2
     position_ids = {p["id"] for p in body["positions"]}
     assert position_ids == {"implementer", "product-owner"}
+    # E4: with no reports_to relationships in the fixture, every
+    # position is depth=0 and reports_to=None
+    for p in body["positions"]:
+        assert p["depth"] == 0
+        assert p["reports_to"] is None
+
+
+async def test_account_seg2_endpoint_dfs_orders_positions_by_reports_to():
+    """Positions with reports_to edges emit in DFS pre-order:
+    parent first, then children (in items[] order at each level)."""
+    tree_content = {
+        **ARTIFACT_CONTENT,
+        "items": [
+            # Items[] order shuffled deliberately to prove that tree
+            # order wins over items[] order at the top level.
+            {"type": "orgdef:Position", "id": "engineer", "name": "Engineer"},
+            {"type": "orgdef:Position", "id": "strategist", "name": "Strategist"},
+            {"type": "orgdef:Position", "id": "director", "name": "Director"},
+        ],
+        "relationships": [
+            {"type": "reports_to", "from": "strategist", "to": "director"},
+            {"type": "reports_to", "from": "engineer", "to": "strategist"},
+        ],
+    }
+    tree_artifact = {**ARTIFACT_ROW, "content": tree_content}
+    with patch.object(boot_url, "account_by_handle", return_value=FAKE_ACCOUNT), \
+         patch.object(boot_url, "artifact_by_account_and_slug", return_value=tree_artifact):
+        request = _make_request({"account": "scott", "seg2": "thingalog"})
+        response = await boot_url.account_seg2_endpoint(request)
+
+    import json
+    body = json.loads(response.body)
+    ids = [p["id"] for p in body["positions"]]
+    depths = [p["depth"] for p in body["positions"]]
+    parents = [p["reports_to"] for p in body["positions"]]
+    assert ids == ["director", "strategist", "engineer"]
+    assert depths == [0, 1, 2]
+    assert parents == [None, "director", "strategist"]
 
 
 async def test_account_seg2_endpoint_filters_non_position_items():
