@@ -824,3 +824,63 @@ async def test_update_relationship_rejects_unknown_op(_mock_role):
                 to_id="product-owner",
                 op="set",
             )
+
+
+# --- claim_org_create ------------------------------------------------------
+
+
+async def test_claim_org_create_rejects_unknown_handle():
+    from server.tool_impls import tool_claim_org_create_impl
+
+    with patch("server.tool_impls.account_by_handle", return_value=None):
+        with pytest.raises(ValueError, match="No openbraid account"):
+            await tool_claim_org_create_impl(
+                account_handle="ghost",
+                claim_what="test",
+                client_session_id="cs",
+            )
+
+
+async def test_claim_org_create_issues_pin_against_synthetic_role():
+    """Resolves account → ensures synthetic bootstrap role exists →
+    inserts pin_challenges row → returns challenge_id + relay
+    instruction. End-to-end with mocked db."""
+    from server import tool_impls
+
+    fake_account = {"id": "acct-uuid"}
+
+    fake_sb = MagicMock()
+    fake_sb.table.return_value.insert.return_value.execute.return_value.data = [
+        {"id": "challenge-uuid", "expires_at": "2026-05-11T20:00:00+00:00"}
+    ]
+
+    with patch.object(tool_impls, "account_by_handle", return_value=fake_account), \
+         patch.object(tool_impls, "ensure_org_create_role", return_value="bootstrap-role-uuid"), \
+         patch.object(tool_impls, "supabase", return_value=fake_sb), \
+         patch.object(tool_impls, "generate_pin", return_value="123456789"):
+        result = await tool_impls.tool_claim_org_create_impl(
+            account_handle="newuser",
+            claim_what="Create org",
+            client_session_id="cs-1",
+        )
+
+    assert result["challenge_id"] == "challenge-uuid"
+    assert "openbraid panel" in result["message"]
+    # Verify pin_challenges insert carried the synthetic role id + the
+    # client session id (so audit ties back to the originating session).
+    insert_call = fake_sb.table.return_value.insert.call_args[0][0]
+    assert insert_call["role_id"] == "bootstrap-role-uuid"
+    assert insert_call["client_session_id"] == "cs-1"
+    assert insert_call["pin"] == "123456789"
+    assert insert_call["claim_what"] == "Create org"
+
+
+async def test_claim_org_create_rejects_empty_handle():
+    from server.tool_impls import tool_claim_org_create_impl
+
+    with pytest.raises(ValueError, match="non-empty string"):
+        await tool_claim_org_create_impl(
+            account_handle="",
+            claim_what="test",
+            client_session_id="cs",
+        )

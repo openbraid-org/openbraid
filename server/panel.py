@@ -52,6 +52,7 @@ from server.db import (
     ensure_personal_org,
     find_job_in_artifact,
     find_position_in_artifact,
+    is_org_create_role_name,
     org_by_name,
     orgs_for_account,
     supabase,
@@ -423,6 +424,34 @@ async def roles_page(request: Request):
         .execute()
     )
 
+    # Filter out the synthetic org-create bootstrap role from the main
+    # list; we surface its active PIN in a dedicated card so the user
+    # knows where to look during the Create-Organization-via-AI-Agent
+    # flow.
+    org_create_role_ids = [
+        r["id"] for r in (roles.data or [])
+        if is_org_create_role_name(r["name"])
+    ]
+    roles_list = [
+        r for r in (roles.data or [])
+        if not is_org_create_role_name(r["name"])
+    ]
+
+    # Active org-create PINs for the dedicated panel card.
+    org_create_pins = []
+    if org_create_role_ids:
+        pin_rows = (
+            supabase()
+            .table("pin_challenges")
+            .select("id, pin, claim_what, created_at, expires_at")
+            .in_("role_id", org_create_role_ids)
+            .is_("used_at", "null")
+            .gt("expires_at", "now()")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        org_create_pins = pin_rows.data or []
+
     # Resolve incumbents bindings for this account so we know which
     # roles are artifact-bound (Phase F F0). Each row: claimed_role_id
     # → org_artifact_id; we map further to org_slug for display.
@@ -458,7 +487,7 @@ async def roles_page(request: Request):
     mcp_base = _mcp_origin()
 
     enriched = []
-    for role in roles.data:
+    for role in roles_list:
         is_artifact_bound = role["id"] in artifact_slug_by_role_id
         # role.name is "<handle>/<org_slug>/<position_id>" post-0010;
         # split into parts so we can render org + position cleanly.
@@ -573,6 +602,7 @@ async def roles_page(request: Request):
             "vacant_positions": vacant_positions,
             "chart_links": chart_links,
             "account_handle": handle,
+            "org_create_pins": org_create_pins,
             "no_account": False,
             "error": request.query_params.get("error"),
             "notice": request.query_params.get("notice"),

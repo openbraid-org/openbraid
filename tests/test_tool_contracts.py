@@ -20,6 +20,10 @@ EXPECTED_TOOLS: dict[str, dict[str, set[str]]] = {
         "required": {"position_url"},
         "optional": {"claim_what"},
     },
+    "claim_org_create": {
+        "required": {"account_handle"},
+        "optional": {"claim_what"},
+    },
     "auth_with_pin": {
         "required": {"challenge_id", "pin"},
         "optional": set(),

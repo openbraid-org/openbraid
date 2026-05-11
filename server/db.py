@@ -496,6 +496,59 @@ def incumbent_by_artifact_position(
     return result.data[0] if result.data else None
 
 
+_ORG_CREATE_SUFFIX = "/__org-create__"
+
+
+def ensure_org_create_role(account_id: str, account_handle: str) -> str:
+    """Return the synthetic org-create role for an account.
+
+    Phase F follow-up — the "Create Organization via AI Agent" flow.
+    A fresh account with no orgs (or any account creating a new org)
+    needs a session_token to call upload_org, but the normal PIN
+    ceremony requires a role to claim. This synthetic role bootstraps
+    that: claim it once, get a session_token, use it for upload_org
+    + any other account-level operation.
+
+    Name convention: `<handle>/__org-create__`. The double-underscored
+    suffix marks it as openbraid-internal infrastructure (rendered
+    distinctively in the panel rather than in the main roles list).
+
+    Idempotent — reuses an existing row when present. Subsequent
+    `Create Organization via AI Agent` clicks against the same
+    account land on the same role and just generate fresh PINs.
+    """
+    synthetic_name = f"{account_handle}{_ORG_CREATE_SUFFIX}"
+    sb = supabase()
+    existing = (
+        sb.table("roles")
+        .select("id, name")
+        .eq("account_id", account_id)
+        .eq("name", synthetic_name)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    if existing.data:
+        return existing.data[0]["id"]
+    inserted = (
+        sb.table("roles")
+        .insert(
+            {
+                "account_id": account_id,
+                "name": synthetic_name,
+            }
+        )
+        .execute()
+    )
+    return inserted.data[0]["id"]
+
+
+def is_org_create_role_name(role_name: str) -> bool:
+    """True iff the given role name is the synthetic org-create
+    bootstrap role (filtered out of /panel/roles main list and shown
+    in its own surface instead)."""
+    return isinstance(role_name, str) and role_name.endswith(_ORG_CREATE_SUFFIX)
+
+
 def ensure_artifact_bound_role(
     account_id: str,
     account_handle: str,
