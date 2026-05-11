@@ -702,6 +702,7 @@ def _save_artifact_after_edit(
     tool_name: str,
     patch_summary: str,
     edited_by_role_id: str,
+    applied_fields: list[str] | None = None,
 ) -> dict:
     """Write the new content back + log the audit row.
 
@@ -709,6 +710,13 @@ def _save_artifact_after_edit(
     can't bypass the same gates upload_org enforces. Bumps version
     when the patch didn't explicitly set one. Returns the receipt
     the tool impls hand to MCP / REST.
+
+    Receipt shape (per strategist's note 4):
+      - artifact_id, org_slug — identifiers
+      - version_before, version_after — version trail
+      - edit_log_id — the audit row's id so callers can reference
+      - applied_fields — list of top-level keys touched (RFC 7396);
+        deletions appear as "-fieldname"
     """
     _validate_opencatalog_content(new_content, artifact["org_slug"])
     new_version = new_content["version"]
@@ -720,38 +728,71 @@ def _save_artifact_after_edit(
             "updated_at": "now()",
         }
     ).eq("id", artifact["id"]).execute()
-    sb.table("org_artifact_edits").insert(
-        {
-            "org_artifact_id": artifact["id"],
-            "edited_by_role_id": edited_by_role_id,
-            "tool_name": tool_name,
-            "patch_summary": patch_summary,
-            "version_before": artifact["version"],
-            "version_after": new_version,
-        }
-    ).execute()
+    audit_insert = (
+        sb.table("org_artifact_edits")
+        .insert(
+            {
+                "org_artifact_id": artifact["id"],
+                "edited_by_role_id": edited_by_role_id,
+                "tool_name": tool_name,
+                "patch_summary": patch_summary,
+                "version_before": artifact["version"],
+                "version_after": new_version,
+            }
+        )
+        .execute()
+    )
+    edit_log_id = (
+        audit_insert.data[0]["id"]
+        if audit_insert.data
+        else None
+    )
     return {
         "artifact_id": artifact["id"],
         "org_slug": artifact["org_slug"],
         "version_before": artifact["version"],
         "version_after": new_version,
+        "edit_log_id": edit_log_id,
+        "applied_fields": applied_fields or [],
     }
 
 
-def _apply_patch(target: dict, patch: dict) -> None:
-    """Top-level key replacement: each key in patch overwrites the
-    same key in target. Nested dicts/lists are replaced wholesale,
-    not deep-merged — caller is expected to compose the full new
-    field value when patching arrays."""
+def _apply_patch(target: dict, patch: dict) -> list[str]:
+    """Apply a JSON Merge Patch (RFC 7396) to `target` in place.
+
+    Per RFC 7396:
+      - Each top-level key in `patch` replaces the same key in `target`
+      - A `null` value in `patch` REMOVES that key from `target`
+        (rather than setting it to None)
+      - Nested dicts are replaced wholesale — we do NOT recurse into
+        them. This is a deliberate simplification: openbraid's
+        position-level fields and catalog-level fields are flat enough
+        that wholesale replacement is the predictable semantic; AI
+        clients composing nested edits should pass the full new
+        nested value.
+
+    Returns the list of top-level keys that were touched (for the
+    receipt's `applied_fields` per strategist's note 4).
+    """
+    applied = []
     for k, v in patch.items():
-        target[k] = v
+        if v is None:
+            if k in target:
+                del target[k]
+                applied.append(f"-{k}")
+        else:
+            target[k] = v
+            applied.append(k)
+    return applied
 
 
 def _summarize_patch(prefix: str, patch: dict) -> str:
     """Render a short human-readable patch summary for the audit row."""
     bits = []
     for k, v in patch.items():
-        if isinstance(v, list):
+        if v is None:
+            bits.append(f"-{k}")  # RFC 7396 deletion
+        elif isinstance(v, list):
             bits.append(f"{k} ({len(v)} items)")
         elif isinstance(v, dict):
             bits.append(f"{k} (object)")
@@ -814,7 +855,7 @@ async def tool_update_position_impl(
     new_content = dict(content)
     new_items = list(items)
     new_position = dict(items[target_idx])
-    _apply_patch(new_position, patch)
+    applied_fields = _apply_patch(new_position, patch)
     new_items[target_idx] = new_position
     new_content["items"] = new_items
     new_content["version"] = _bump_semver(content.get("version", "0.0.0"), "patch")
@@ -827,6 +868,7 @@ async def tool_update_position_impl(
             f"update_position {position_id}", patch
         ),
         edited_by_role_id=role_id,
+        applied_fields=applied_fields,
     )
 
 
@@ -866,7 +908,7 @@ async def tool_update_org_metadata_impl(
     artifact = _load_artifact_for_edit(account_id, org_slug, expected_version)
 
     new_content = dict(artifact["content"])
-    _apply_patch(new_content, patch)
+    applied_fields = _apply_patch(new_content, patch)
     if "version" not in patch:
         new_content["version"] = _bump_semver(
             new_content.get("version", "0.0.0"), "patch"
@@ -878,6 +920,7 @@ async def tool_update_org_metadata_impl(
         tool_name="update_org_metadata",
         patch_summary=_summarize_patch("update_org_metadata", patch),
         edited_by_role_id=role_id,
+        applied_fields=applied_fields,
     )
 
 
