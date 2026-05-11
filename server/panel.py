@@ -37,9 +37,9 @@ from server.auth import (
     sign_up_with_password,
 )
 from server.db import (
+    artifacts_for_account,
     ensure_account,
     ensure_personal_org,
-    orgs_for_account,
     supabase,
 )
 
