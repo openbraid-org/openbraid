@@ -70,16 +70,17 @@ def test_ensure_artifact_bound_role_creates_on_first_call():
     with patch.object(db, "supabase", return_value=fake):
         role_id, role_name = db.ensure_artifact_bound_role(
             account_id="acct-uuid",
+            account_handle="scott",
             artifact=ARTIFACT_ROW,
             position_item=ARTIFACT_ROW["content"]["items"][0],
         )
 
     assert role_id == "new-role-uuid"
-    assert role_name == "thingalog/implementer"
+    assert role_name == "scott/thingalog/implementer"
     # Verify a role insert happened with the synthetic name + roledef_url
     role_insert_calls = [
         c for c in fake.table.return_value.insert.call_args_list
-        if c[0][0].get("name") == "thingalog/implementer"
+        if c[0][0].get("name") == "scott/thingalog/implementer"
     ]
     assert len(role_insert_calls) == 1
     role_payload = role_insert_calls[0][0][0]
@@ -120,19 +121,20 @@ def test_ensure_artifact_bound_role_reuses_existing_binding():
             "ended_at": None,
         }
     ]
-    # roles lookup by id → returns the synthetic name
+    # roles lookup by id → returns the canonical synthetic name
     roles_chain = fake.table.return_value.select.return_value.eq.return_value
-    roles_chain.execute.return_value.data = [{"name": "thingalog/implementer"}]
+    roles_chain.execute.return_value.data = [{"name": "scott/thingalog/implementer"}]
 
     with patch.object(db, "supabase", return_value=fake):
         role_id, role_name = db.ensure_artifact_bound_role(
             account_id="acct-uuid",
+            account_handle="scott",
             artifact=ARTIFACT_ROW,
             position_item=ARTIFACT_ROW["content"]["items"][0],
         )
 
     assert role_id == "existing-role-uuid"
-    assert role_name == "thingalog/implementer"
+    assert role_name == "scott/thingalog/implementer"
     # Verify no role-insert and no incumbents-insert occurred
     insert_calls = fake.table.return_value.insert.call_args_list
     assert len(insert_calls) == 0
@@ -147,14 +149,14 @@ def test_resolve_position_url_artifact_path_creates_synthetic_role():
     with patch.object(db, "account_by_handle", return_value=ACCOUNT_ROW), \
          patch.object(db, "artifact_by_account_and_slug", return_value=ARTIFACT_ROW), \
          patch.object(db, "ensure_artifact_bound_role",
-                      return_value=("synth-role-uuid", "thingalog/implementer")):
+                      return_value=("synth-role-uuid", "scott/thingalog/implementer")):
         role_id, email, role_name = db.resolve_position_url(
             "https://mcp.openbraid.app/scott/thingalog/implementer"
         )
 
     assert role_id == "synth-role-uuid"
     assert email == "scott@confusedgorilla.com"
-    assert role_name == "thingalog/implementer"
+    assert role_name == "scott/thingalog/implementer"
 
 
 def test_resolve_position_url_falls_back_to_legacy_when_no_artifact():
@@ -165,18 +167,18 @@ def test_resolve_position_url_falls_back_to_legacy_when_no_artifact():
     legacy_org = {"id": "org-uuid", "name": "personal"}
     legacy_position = {
         "id": "legacy-role-uuid",
-        "name": "personal-strategist",
+        "name": "scott/personal/personal-strategist",
     }
     with patch.object(db, "account_by_handle", return_value=ACCOUNT_ROW), \
          patch.object(db, "artifact_by_account_and_slug", return_value=None), \
          patch.object(db, "org_by_name", return_value=legacy_org), \
-         patch.object(db, "position_by_name", return_value=legacy_position):
+         patch.object(db, "position_by_canonical_name", return_value=legacy_position):
         role_id, email, role_name = db.resolve_position_url(
             "https://mcp.openbraid.app/scott/personal/personal-strategist"
         )
 
     assert role_id == "legacy-role-uuid"
-    assert role_name == "personal-strategist"
+    assert role_name == "scott/personal/personal-strategist"
 
 
 def test_resolve_position_url_artifact_path_404s_if_position_not_in_items():

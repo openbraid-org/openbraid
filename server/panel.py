@@ -464,12 +464,27 @@ async def roles_create(request: Request):
     # ensured-on-the-fly for fresh ones).
     org_id = ensure_personal_org(account_id)
 
+    # Phase F migration 0010: role names are canonical-URL-shaped
+    # `<handle>/<org>/<position>`. Construct the canonical name from
+    # the panel input (which is the bare position id) + the account's
+    # handle + the personal org name.
+    account_email = (
+        supabase()
+        .table("accounts")
+        .select("email")
+        .eq("id", account_id)
+        .execute()
+        .data[0]["email"]
+    )
+    handle = account_email.split("@", 1)[0]
+    canonical_name = f"{handle}/personal/{name}"
+
     try:
         supabase().table("roles").insert(
             {
                 "account_id": account_id,
                 "org_id": org_id,
-                "name": name,
+                "name": canonical_name,
                 "roledef_url": roledef_url,
             }
         ).execute()

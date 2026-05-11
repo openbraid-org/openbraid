@@ -217,13 +217,45 @@ def org_by_name(account_id: str, org_name: str) -> dict | None:
 
 
 def position_by_name(org_id: str, position_name: str) -> dict | None:
-    """Resolve a position (role) by (org_id, name)."""
+    """Resolve a legacy role by (org_id, position_name).
+
+    Phase F F0 migration unified role naming on
+    `<account_handle>/<org_slug>/<position_id>` (canonical URL form;
+    migration 0010 rewrote all legacy names). This helper joins the
+    org → account to compute the expected canonical name from the
+    short position_name the URL parser produced, then does the lookup.
+    """
+    sb = supabase()
+    org_row = (
+        sb.table("orgs")
+        .select("name, account_id")
+        .eq("id", org_id)
+        .execute()
+    )
+    if not org_row.data:
+        return None
+    org = org_row.data[0]
+    acct_row = (
+        sb.table("accounts")
+        .select("email")
+        .eq("id", org["account_id"])
+        .execute()
+    )
+    if not acct_row.data:
+        return None
+    handle = acct_row.data[0]["email"].split("@", 1)[0]
+    canonical_name = f"{handle}/{org['name']}/{position_name}"
+    return position_by_canonical_name(org_id, canonical_name)
+
+
+def position_by_canonical_name(org_id: str, canonical_name: str) -> dict | None:
+    """Lookup a role by its post-0010 canonical name within an org."""
     result = (
         supabase()
         .table("roles")
         .select("id, name, roledef_url, created_at, org_id, account_id")
         .eq("org_id", org_id)
-        .eq("name", position_name)
+        .eq("name", canonical_name)
         .is_("deleted_at", "null")
         .execute()
     )
@@ -412,6 +444,7 @@ def resolve_position_url(url: str) -> tuple[str, str, str]:
         if position_item:
             role_id, role_name = ensure_artifact_bound_role(
                 account_id=account["id"],
+                account_handle=handle,
                 artifact=artifact,
                 position_item=position_item,
             )
@@ -424,7 +457,8 @@ def resolve_position_url(url: str) -> tuple[str, str, str]:
             f"No org '{effective_org_slug}' found for account '{handle}'"
         )
 
-    position = position_by_name(org["id"], position_name)
+    canonical_name = f"{handle}/{org['name']}/{position_name}"
+    position = position_by_canonical_name(org["id"], canonical_name)
     if not position:
         raise ValueError(
             f"No position '{position_name}' found in org '{org['name']}' "
@@ -464,16 +498,18 @@ def incumbent_by_artifact_position(
 
 def ensure_artifact_bound_role(
     account_id: str,
+    account_handle: str,
     artifact: dict,
     position_item: dict,
 ) -> tuple[str, str]:
     """Return (role_id, role_name) for an artifact-bound position,
     creating the role + incumbents binding on first claim.
 
-    Synthetic role name convention: `<org_slug>/<position_id>`. The
-    slash distinguishes artifact-bound roles from legacy role names
-    in the same account namespace and is unique per account by
-    construction (one org_slug, one position_id per opencatalog).
+    Synthetic role name convention: `<account_handle>/<org_slug>/<position_id>`
+    (e.g. `scott/thingalog/implementer`). The full URL path encodes
+    who owns the role and which org+position it is bound to —
+    Director's call 2026-05-11 so role rows self-describe under
+    future cross-account claim flows.
 
     Idempotent: if a live incumbents row already exists for this
     artifact+position, returns its claimed_role_id unchanged. If the
@@ -501,7 +537,7 @@ def ensure_artifact_bound_role(
         # Fall through to fresh-create.
 
     org_slug = artifact["org_slug"]
-    synthetic_name = f"{org_slug}/{position_id}"
+    synthetic_name = f"{account_handle}/{org_slug}/{position_id}"
     role_definition = position_item.get("role_definition")
     roledef_url = (
         role_definition.get("url")
