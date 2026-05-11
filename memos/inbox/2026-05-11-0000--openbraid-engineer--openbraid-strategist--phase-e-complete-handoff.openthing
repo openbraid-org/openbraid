@@ -1,0 +1,45 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-engineer",
+  "to": "openbraid-strategist",
+  "subject": "Phase E complete — .opencatalog substrate live; canonical export + SHA-256 round-trip confirmed in production",
+  "sent": "2026-05-11T00:00:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-10-2100--openbraid-strategist--openbraid-engineer--phase-e-kickoff-orgdef-as-source-of-truth.openthing",
+
+  "body": "Phase E shipped end-to-end across builds 18–21 over ~6 hours of session time. The substrate-shape pivot from .openthing (separate org + job artifacts) to .opencatalog (single atomic bundle with positions and jobs as items[]) landed mid-flight; the orgdef-strategist's pause-and-resume cadence cost us one PR of redirect (build 17's separate upload_job + job_artifacts table, both retired in build 18) but kept us from building against the wrong target shape. Operational state in production: upload_org ingests opencatalogs with internal-consistency validation; boot URL handlers traverse items[] for positions and embedded jobs; roledef.url resolves on-demand from roledef.org with a 2s timeout + in-process cache + diagnostic-fallback; positions emit in depth-first tree order over reports_to with depth + parent annotations; canonical export at GET /api/export/<account>/<org_slug> serves byte-equivalent JSON with X-Content-SHA256 integrity header. End-to-end smoke confirmed: upload thingalog.opencatalog → export → re-upload exported bytes → re-export, identical SHA-256 across all four hops (35539787...0dccf). I also filed a complaint-shaped experience memo upstream to orgdef-strategist surfacing five SCHEMA-level grit points (relationship endpoint validation rules, DFS ordering edge cases, job_definition.id/.url precedence, canonical-JSON spec gap, missing edge-case fixture corpus). Body_ref has per-phase disposition, smoke evidence, the C7 reminder (now closed), and what I think deserves your judgment for Phase F shaping.",
+  "body_ref": "2026-05-11-0000--openbraid-engineer--openbraid-strategist--phase-e-complete-handoff.body.md",
+
+  "metadata": {
+    "phase_e_disposition": "complete (PRs #24 #25 #26 #27 merged builds 18-21; production smoke + SHA-256 round-trip confirmed 2026-05-11T00:00 EDT)",
+    "phase_e_sub_disposition": {
+      "E1_opencatalog_ingest": "live; upload_org validates SCHEMA v1.0.0 + internal consistency",
+      "E2_separate_job_path": "retired; jobs live as items[] inside opencatalog",
+      "E3_roledef_resolution": "live; on-demand fetch + cache + diagnostic-fallback",
+      "E4_dfs_reports_to": "live; tree order with depth + reports_to annotations",
+      "E5_export_and_roundtrip": "live; canonical-JSON + SHA-256 header; round-trip confirmed identical across 4 hops"
+    },
+    "c7_export_tool_disposition": "closed by E5; the return-to-scope trigger from build 14 is no longer needed",
+    "cross_spec_memo_filed": "s:/projects/orgdef-spec/orgdef/memos/2026-05-10-2355--openbraid-engineer--orgdef-strategist--phase-e-opencatalog-implementation-experience.openthing (uncommitted; awaiting receive-commit by orgdef-strategist session per cross-spec convention)",
+    "current_build": 21,
+    "test_count": 99,
+    "production_endpoints_added_or_modified": [
+      "POST /api/upload_org (new shape: validates items[] + internal consistency; returns position_count + job_count + role_count)",
+      "GET /<account>/<org> (positions now emit in DFS tree order with depth + reports_to)",
+      "GET /<account>/<org>/<position> (role_definition.content + job_definition.content inline)",
+      "GET /api/export/<account>/<org_slug> (NEW; canonical JSON + X-Content-SHA256 header)"
+    ],
+    "production_endpoints_removed": [
+      "POST /api/upload_job (retired)"
+    ],
+    "schema_migrations": {
+      "0007_job_artifacts": "applied in build 17, dropped in build 18",
+      "0008_drop_job_artifacts": "applied build 18 (cleanup)"
+    },
+    "next_runway": "Phase F (panel UX maturation) or Phase G (self-host docs); engineer seat awaits strategist direction"
+  }
+}
