@@ -213,8 +213,24 @@
     </header>
     <main>
         <div class="org-header">
-            <h2>{{ org_name }}</h2>
-            <div class="org-slug">{{ account_handle }}/{{ org_slug }} · {{ position_count }} position{% if position_count != 1 %}s{% endif %}</div>
+            <h2 style="display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.6rem;">
+                <span>{{ org_name }}</span>
+                {% if org_version %}
+                <span style="font-size: 0.85rem; color: var(--muted); font-weight: 400; font-family: ui-monospace, 'SF Mono', Menlo, monospace;">v{{ org_version }}</span>
+                {% endif %}
+                {% if master %}
+                {% if master.kind == 'master' %}
+                <span style="display: inline-block; padding: 0.15rem 0.5rem; border-radius: 0.25rem; font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; background: rgba(200,169,106,0.12); color: var(--accent); border: 1px solid var(--accent);" title="This openbraid instance is the master copy of this org. Edits land here.">
+                    Mastered here
+                </span>
+                {% else %}
+                <span style="display: inline-block; padding: 0.15rem 0.5rem; border-radius: 0.25rem; font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; background: transparent; color: var(--muted); border: 1px solid var(--border);" title="The authoritative copy of this org lives at {{ master.master_url }}. openbraid renders read-only; edits there will overwrite local changes on next sync.">
+                    Mirrored from {{ master.host_label }}
+                </span>
+                {% endif %}
+                {% endif %}
+            </h2>
+            <div class="org-slug">{{ account_handle }}/{{ org_slug }} · {{ position_count }} position{% if position_count != 1 %}s{% endif %}{% if master and master.master_url %} · master: <a href="{{ master.master_url }}" target="_blank" rel="noopener" style="color: var(--muted); text-decoration: underline dotted;">{{ master.master_url }}</a>{% endif %}</div>
             {% if org_mission %}
             <div class="org-mission">{{ org_mission }}</div>
             {% endif %}
