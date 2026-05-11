@@ -170,9 +170,8 @@
             border: 1px solid var(--border);
             border-radius: 0.5rem;
             display: grid;
-            grid-template-columns: 1.4fr 1fr 1.2fr;
-            gap: 1.5rem;
-            align-items: center;
+            grid-template-columns: 1fr;
+            gap: 0;
         }
         .role-name {
             font-weight: 600;
@@ -290,7 +289,86 @@
             text-align: center;
             color: var(--muted);
         }
+        .role-live {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+        .live-label {
+            font-size: 0.7rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 0.5rem;
+        }
+        .role-pins {
+            margin-bottom: 0.75rem;
+        }
+        .pin-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.6rem 1rem;
+            padding: 0.6rem 0.75rem;
+            background: rgba(200, 169, 106, 0.06);
+            border: 1px solid var(--accent);
+            border-radius: 0.375rem;
+            margin-bottom: 0.4rem;
+        }
+        .pin-row .pin-claim-what {
+            font-size: 0.8rem;
+            color: var(--muted);
+            width: 100%;
+            order: 5;
+        }
+        .pin-row .pin-time {
+            order: 4;
+            margin-top: 0;
+        }
+        .session-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.5rem 0.75rem;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border);
+            border-radius: 0.375rem;
+            margin-bottom: 0.4rem;
+        }
+        .session-info {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 0.5rem 1rem;
+            font-size: 0.8rem;
+            color: var(--muted);
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        }
+        .session-id {
+            color: var(--fg);
+        }
+        .session-revoke-btn {
+            background: transparent;
+            color: var(--muted);
+            border: 1px solid var(--border);
+            padding: 0.3rem 0.7rem;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-family: inherit;
+        }
+        .session-revoke-btn:hover {
+            color: var(--error);
+            border-color: var(--error);
+        }
+        .role-idle {
+            font-size: 0.85rem;
+            color: var(--muted);
+            font-style: italic;
+        }
     </style>
+    <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
 </head>
 <body>
     <header>
@@ -384,30 +462,14 @@
                         {% endif %}
                     </div>
                 </div>
-                <div class="access-cell">
-                    <div class="label">Last access</div>
-                    {% if r.last_access %}
-                    <div class="value" data-iso="{{ r.last_access }}">{{ r.last_access[:19] }}Z</div>
-                    {% else %}
-                    <div class="value empty">never</div>
-                    {% endif %}
-                </div>
-                <div class="pin-cell">
-                    <div class="label">Last PIN</div>
-                    {% if r.last_pin %}
-                    <div>
-                        <span class="pin-value">{{ r.last_pin.pin[0:3] }} {{ r.last_pin.pin[3:6] }} {{ r.last_pin.pin[6:9] }}</span>
-                        {% if r.last_pin.used_at %}
-                        <span class="pin-status used">Used</span>
-                        {% elif r.last_pin.expires_at %}
-                            {# Server-side check happens via JS; we mark as active until expiry #}
-                            <span class="pin-status active" data-expires="{{ r.last_pin.expires_at }}">Active</span>
-                        {% endif %}
-                    </div>
-                    <div class="pin-time" data-iso="{{ r.last_pin.created_at }}">issued {{ r.last_pin.created_at[:19] }}Z</div>
-                    {% else %}
-                    <div class="pin-value empty">—</div>
-                    {% endif %}
+                <div
+                    id="role-live-{{ r.id }}"
+                    class="role-live"
+                    hx-get="/panel/roles/{{ r.id }}/live"
+                    hx-trigger="load, every 2s"
+                    hx-swap="innerHTML"
+                >
+                    <div class="role-idle">Loading...</div>
                 </div>
             </li>
             {% endfor %}
@@ -461,35 +523,11 @@
     </main>
 
     <script>
-    // Mark expired PINs that the template thought were active.
-    document.querySelectorAll('.pin-status.active[data-expires]').forEach(function (el) {
-        var expires = new Date(el.dataset.expires);
-        if (expires <= new Date()) {
-            el.textContent = 'Expired';
-            el.classList.remove('active');
-            el.classList.add('expired');
-        }
-    });
-    // Convert ISO timestamps to local-time, relative form.
-    function relTime(iso) {
-        var d = new Date(iso);
-        var diffMs = new Date() - d;
-        var sec = Math.floor(diffMs / 1000);
-        if (sec < 60) return sec + 's ago';
-        var min = Math.floor(sec / 60);
-        if (min < 60) return min + 'm ago';
-        var hr = Math.floor(min / 60);
-        if (hr < 24) return hr + 'h ago';
-        var day = Math.floor(hr / 24);
-        if (day < 30) return day + 'd ago';
-        return d.toLocaleDateString();
-    }
-    document.querySelectorAll('[data-iso]').forEach(function (el) {
-        el.textContent = relTime(el.dataset.iso);
-        el.title = el.dataset.iso;
-    });
     // Copy-prompt buttons: click to put the recommended one-line
     // instantiation prompt on the clipboard, with brief feedback.
+    // (The per-role live fragment handles its own timestamp / PIN
+    // expiry rendering inline since HTMX replaces innerHTML on each
+    // 2s poll and this top-level script only runs once.)
     document.querySelectorAll('.copy-prompt-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             var prompt = btn.dataset.prompt || '';

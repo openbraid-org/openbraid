@@ -1,0 +1,84 @@
+{# Phase F F4 consolidated control panel: per-role live state. #}
+{# Polled every 2s by the role-card HTMX. Renders pending PINs at #}
+{# the top (most urgent — Director needs to read these back to the #}
+{# AI) and active sessions below (with per-row revoke buttons). #}
+
+{% if pins %}
+<div class="role-pins">
+    <div class="live-label">PIN requests · {{ pins|length }}</div>
+    {% for p in pins %}
+    <div class="pin-row">
+        <span class="pin-value">{{ p.pin[0:3] }} {{ p.pin[3:6] }} {{ p.pin[6:9] }}</span>
+        <span class="pin-status active" data-expires="{{ p.expires_at }}">Active</span>
+        {% if p.claim_what %}
+        <div class="pin-claim-what">requested: {{ p.claim_what }}</div>
+        {% endif %}
+        <div class="pin-time" data-iso="{{ p.created_at }}">issued {{ p.created_at[:19] }}Z</div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if sessions %}
+<div class="role-sessions">
+    <div class="live-label">Active sessions · {{ sessions|length }}</div>
+    {% for s in sessions %}
+    <div class="session-row">
+        <div class="session-info">
+            <span class="session-id" title="{{ s.client_session_id }}">{{ s.client_session_id[:24] }}{% if s.client_session_id|length > 24 %}…{% endif %}</span>
+            <span class="session-time" data-iso="{{ s.created_at }}">{{ s.created_at[:19] }}Z</span>
+            <span class="session-expires" data-iso="{{ s.expires_at }}">expires {{ s.expires_at[:19] }}Z</span>
+        </div>
+        <form
+            method="post"
+            action="/panel/sessions/{{ s.id }}/revoke"
+            hx-post="/panel/sessions/{{ s.id }}/revoke"
+            hx-swap="none"
+            style="display: inline; margin: 0;"
+            onsubmit="return confirm('Revoke this session? The session_token becomes immediately invalid.');"
+        >
+            <button type="submit" class="session-revoke-btn">Revoke</button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if not pins and not sessions %}
+<div class="role-idle">No active sessions or pending PINs.</div>
+{% endif %}
+
+<script>
+// Convert ISO timestamps to local-relative time within this fragment.
+// We re-run on each HTMX swap because the polling replaces the
+// fragment innerHTML.
+document.querySelectorAll('#role-live-{{ role_id }} [data-iso]').forEach(function (el) {
+    var d = new Date(el.dataset.iso);
+    var diffMs = new Date() - d;
+    var sec = Math.floor(diffMs / 1000);
+    var rel;
+    if (sec < 0) {
+        var futureSec = -sec;
+        if (futureSec < 60) rel = 'in ' + futureSec + 's';
+        else if (futureSec < 3600) rel = 'in ' + Math.floor(futureSec / 60) + 'm';
+        else if (futureSec < 86400) rel = 'in ' + Math.floor(futureSec / 3600) + 'h';
+        else rel = 'in ' + Math.floor(futureSec / 86400) + 'd';
+    } else if (sec < 60) rel = sec + 's ago';
+    else if (sec < 3600) rel = Math.floor(sec / 60) + 'm ago';
+    else if (sec < 86400) rel = Math.floor(sec / 3600) + 'h ago';
+    else rel = Math.floor(sec / 86400) + 'd ago';
+    var prefix = el.textContent.includes('expires') ? 'expires '
+               : el.textContent.includes('issued') ? 'issued '
+               : '';
+    el.textContent = prefix + rel;
+    el.title = el.dataset.iso;
+});
+// Mark expired PINs.
+document.querySelectorAll('#role-live-{{ role_id }} .pin-status.active[data-expires]').forEach(function (el) {
+    if (new Date(el.dataset.expires) <= new Date()) {
+        el.textContent = 'Expired';
+        el.classList.remove('active');
+        el.classList.add('expired');
+    }
+});
+</script>
