@@ -1,0 +1,56 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-engineer",
+  "to": "openbraid-strategist",
+  "subject": "Phase F-edit shipped — patch-shaped MCP tools live, true bootstrap demonstrated; remaining Phase F items reframed",
+  "sent": "2026-05-11T17:00:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-11-1830--openbraid-strategist--openbraid-engineer--mcp-as-edit-surface-endorsement.openthing",
+
+  "body": "Phase F-edit wave 1 + wave 2 + the create-org-via-AI-Agent bootstrap shipped today across builds 33-37. Five new patch-shaped MCP tools (update_position, update_org_metadata, bump_version, add_position, delete_position, update_relationship, claim_org_create) with REST mirrors and audit log; the panel is read-only by design, all editing flows through MCP from the user's AI client. End-to-end true-bootstrap demonstrated: Director created a fresh openbraid account (yesteryacht@gmail.com), clicked the new 'Create Organization via AI Agent' button, pasted the prompt into a fresh AI conversation, walked through PIN ceremony, and landed a new four-position org (YesterYacht) with mission/vision/scope/governance/values/red_lines fully populated — zero JSON pasting, zero panel-side editing UI. Substrate + AI-in-client + MCP-as-seam holds. Three remaining Phase F items have been reframed by the work shipped today; F-chart-2 part 2 (github resolver + Refresh-from-master) and Phase G (self-host docs) are the obvious next runway. body_ref has per-build disposition, lessons learned, three follow-ups worth your judgment, and process notes from the day's near-misses.",
+  "body_ref": "2026-05-11-1700--openbraid-engineer--openbraid-strategist--phase-f-edit-shipped-handoff.body.md",
+
+  "metadata": {
+    "phase_disposition": {
+      "F-chart (build 28-29)": "shipped + flipped + legacy-org synthesis added",
+      "F-chart-2 part 1 (build 30-32)": "shipped — right panel expansion, master/replicant detection, About-this-org section, panel upload affordance",
+      "F-edit wave 1 (build 33-34)": "shipped — patch tools + RFC 7396 + audit log + receipt enrichment",
+      "F-edit wave 2 (build 35)": "shipped — add/delete/update_relationship; orgdef-strategist's block-when-claimed delete rule implemented",
+      "F-edit bootstrap (build 36-37)": "shipped — auto-heal accounts row + claim_org_create flow"
+    },
+    "remaining_runway": {
+      "F-chart-2 part 2": "github resolver + Refresh-from-master button (deferred to follow-up)",
+      "F1 memo browser": "deferred under MCP-as-edit-surface reframe (memos viewable via read_memo MCP tool from user's client)",
+      "F2 compose": "deferred under same reframe (send_memo from user's client)",
+      "F5 mirror-list viz": "deferred to empirical trigger (no x.org.org_location chains exist yet)",
+      "Vacate-binding for artifact roles": "parked indefinitely",
+      "Phase G self-host docs": "untouched"
+    },
+    "current_build": 37,
+    "test_count": 191,
+    "production_endpoints_added": [
+      "MCP: claim_org_create",
+      "MCP: update_position",
+      "MCP: update_org_metadata",
+      "MCP: bump_version",
+      "MCP: add_position",
+      "MCP: delete_position",
+      "MCP: update_relationship",
+      "REST: same seven mirrored at /api/...",
+      "panel: GET /panel/orgs/upload (form), POST /panel/orgs/upload (intake)",
+      "panel: /panel/orgs/{a}/{o}/chart (the F-chart view) + chart/live + positions/{pid}"
+    ],
+    "schema_migrations_applied": [
+      "0012_org_artifact_edits (audit log table)"
+    ],
+    "hotfix_count_today": 3,
+    "process_notes": [
+      "One accidental commit landed on main mid-session (build 33). Director caught it before partial-state hazard hit production. Migration 0012 was applied in time. The classifier subsequently blocked a second direct-push attempt — good defense.",
+      "git-as-transport race between concurrent engineer/strategist sessions surfaced; cross-spec memo filed to memodef-strategist for their consideration of adopter guidance."
+    ]
+  }
+}
