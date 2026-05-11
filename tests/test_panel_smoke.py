@@ -56,6 +56,36 @@ def test_panel_module_has_no_undefined_names_per_ruff():
     )
 
 
+async def test_chart_page_handler_redirects_on_handle_mismatch():
+    """Phase F F-chart auth-scoping: chart routes redirect when the
+    {account} segment doesn't match the signed-in user's handle. This
+    test exercises the resolver path through the handler body so a
+    future NameError lands here, not in production.
+    """
+    from server import panel
+    from starlette.requests import Request
+
+    fake_user = {"email": "scott@example.com"}
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/panel/orgs/alice/personal/chart",
+        "raw_path": b"/panel/orgs/alice/personal/chart",
+        "path_params": {"account": "alice", "org": "personal"},
+        "query_string": b"",
+        "scheme": "https",
+        "server": ("www.openbraid.app", 443),
+        "headers": [(b"host", b"www.openbraid.app")],
+    }
+    request = Request(scope)
+
+    with patch.object(panel, "_current_user", return_value=fake_user):
+        response = await panel.chart_page(request)
+
+    assert response.status_code == 303
+    assert "/panel/roles" in response.headers["location"]
+
+
 async def test_roles_page_handler_runs_with_mocked_dependencies():
     """Exercise the roles_page handler end-to-end with mocks so
     function-body NameErrors (like the artifacts_for_account miss
