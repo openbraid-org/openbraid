@@ -38,7 +38,9 @@ from server.auth import (
 )
 from server.chart_builder import (
     build_live_map_for_artifact,
+    build_live_map_for_legacy_org,
     build_mermaid_for_artifact,
+    synthesize_legacy_org_content,
 )
 from server.db import (
     account_by_handle,
@@ -48,6 +50,8 @@ from server.db import (
     ensure_personal_org,
     find_job_in_artifact,
     find_position_in_artifact,
+    org_by_name,
+    orgs_for_account,
     supabase,
 )
 
@@ -505,16 +509,26 @@ async def roles_page(request: Request):
                 }
             )
 
-    # Cross-links to per-org chart views (F-chart). Only artifact-
-    # backed orgs are chartable; legacy orgs don't carry positional
-    # structure in the items[] sense.
+    # Cross-links to per-org chart views (F-chart). Artifact-backed
+    # orgs render from items[] directly; legacy orgs render via a
+    # synthesized opencatalog (flat list of nodes, no relationships).
+    artifact_slugs = {a["org_slug"] for a in account_artifacts}
     chart_links = [
         {
             "slug": a["org_slug"],
             "name": (a.get("content") or {}).get("name") or a["org_slug"],
+            "is_legacy": False,
         }
         for a in account_artifacts
     ]
+    for o in orgs_for_account(account_id):
+        if o["name"] in artifact_slugs:
+            continue
+        chart_links.append({
+            "slug": o["name"],
+            "name": o["name"],
+            "is_legacy": True,
+        })
 
     return TEMPLATES.TemplateResponse(
         request,
@@ -614,13 +628,23 @@ async def roles_create(request: Request):
     )
 
 
-async def _resolve_chart_artifact(request: Request):
+async def _resolve_chart_context(request: Request):
     """Helper: parse `{account}` + `{org}` path params, auth-check, and
-    return (user, account_row, artifact_row) or (None, redirect).
+    return a normalized chart context.
 
     Used by all three F-chart routes. Auth-scoping: the {account}
     segment MUST match the signed-in user's handle (email-localpart).
     Cross-account viewing is out of scope for v1.
+
+    Returns either:
+      ((user, account, account_handle, org_slug, content, live, kind,
+        artifact_id_or_None), None)
+    or:
+      (None, RedirectResponse)
+
+    `kind` is "artifact" when an org_artifacts row exists for the slug,
+    or "legacy" when the chart was synthesized from a legacy `orgs`
+    row + its roles.
     """
     user = await _current_user(request)
     if not user:
@@ -639,14 +663,41 @@ async def _resolve_chart_artifact(request: Request):
             "/panel/roles?error=No+openbraid+account+found", status_code=303
         )
 
+    sb = supabase()
     artifact = artifact_by_account_and_slug(account["id"], org_slug)
-    if not artifact:
-        return None, RedirectResponse(
-            f"/panel/roles?error=No+org+artifact+for+slug+{org_slug}",
-            status_code=303,
+    if artifact:
+        content = artifact["content"]
+        live = build_live_map_for_artifact(artifact["id"], sb)
+        return (
+            (user, account, account_handle, org_slug, content, live,
+             "artifact", artifact["id"]),
+            None,
         )
 
-    return (user, account, artifact), None
+    # Legacy fallback: synthesize an opencatalog-shaped chart from the
+    # legacy `orgs` + `roles` tables.
+    legacy = org_by_name(account["id"], org_slug)
+    if not legacy:
+        return None, RedirectResponse(
+            f"/panel/roles?error=No+org+for+slug+{org_slug}",
+            status_code=303,
+        )
+    roles_rows = (
+        sb.table("roles")
+        .select("id, name, roledef_url, created_at, org_id")
+        .eq("org_id", legacy["id"])
+        .is_("deleted_at", "null")
+        .order("created_at", desc=False)
+        .execute()
+    )
+    roles_list = roles_rows.data or []
+    content = synthesize_legacy_org_content(legacy, roles_list, account_handle)
+    live = build_live_map_for_legacy_org(legacy, roles_list, account_handle, sb)
+    return (
+        (user, account, account_handle, org_slug, content, live,
+         "legacy", None),
+        None,
+    )
 
 
 async def chart_page(request: Request):
@@ -659,13 +710,11 @@ async def chart_page(request: Request):
     revoke state stays fresh; clicking any node triggers a JS callback
     (`openPositionPanel`) that fetches the side-panel fragment.
     """
-    resolved, err = await _resolve_chart_artifact(request)
+    resolved, err = await _resolve_chart_context(request)
     if err:
         return err
-    user, account, artifact = resolved
+    user, _account, account_handle, org_slug, content, live, kind, _ = resolved
 
-    content = artifact["content"]
-    live = build_live_map_for_artifact(artifact["id"], supabase())
     mermaid_text = build_mermaid_for_artifact(content, live=live)
 
     return TEMPLATES.TemplateResponse(
@@ -673,11 +722,12 @@ async def chart_page(request: Request):
         "chart.html",
         {
             "user": user,
-            "account_handle": request.path_params["account"],
-            "org_slug": request.path_params["org"],
-            "org_name": content.get("name") or request.path_params["org"],
+            "account_handle": account_handle,
+            "org_slug": org_slug,
+            "org_name": content.get("name") or org_slug,
             "org_mission": content.get("mission"),
             "mermaid_text": mermaid_text,
+            "is_legacy": kind == "legacy",
             "position_count": sum(
                 1 for it in (content.get("items") or [])
                 if isinstance(it, dict) and it.get("type") == "orgdef:Position"
@@ -695,13 +745,11 @@ async def chart_live(request: Request):
     inline script that re-runs `mermaid.run()` on the new content.
     Polled every 2s by the page.
     """
-    resolved, err = await _resolve_chart_artifact(request)
+    resolved, err = await _resolve_chart_context(request)
     if err:
         return err
-    _user, _account, artifact = resolved
+    _user, _account, _handle, _slug, content, live, _kind, _ = resolved
 
-    content = artifact["content"]
-    live = build_live_map_for_artifact(artifact["id"], supabase())
     mermaid_text = build_mermaid_for_artifact(content, live=live)
 
     return TEMPLATES.TemplateResponse(
@@ -722,58 +770,87 @@ async def chart_position_panel(request: Request):
       - claimed → role info (synthetic role.name, claimed_at, active
         sessions count) + revoke-session affordance per session
     """
-    resolved, err = await _resolve_chart_artifact(request)
+    resolved, err = await _resolve_chart_context(request)
     if err:
         return err
-    _user, account, artifact = resolved
+    _user, _account, account_handle, org_slug, content, _live, kind, artifact_id = resolved
 
     position_id = request.path_params["position_id"]
-    position_item = find_position_in_artifact(artifact["content"], position_id)
+    position_item = find_position_in_artifact(content, position_id)
     if not position_item:
         return Response(status_code=404)
 
     job_item = None
     jd = position_item.get("job_definition")
     if isinstance(jd, dict) and isinstance(jd.get("id"), str):
-        job_item = find_job_in_artifact(artifact["content"], jd["id"])
+        job_item = find_job_in_artifact(content, jd["id"])
 
     sb = supabase()
-    incumbent_row = (
-        sb.table("incumbents")
-        .select("id, claimed_role_id, created_at")
-        .eq("org_artifact_id", artifact["id"])
-        .eq("position_id", position_id)
-        .is_("ended_at", "null")
-        .execute()
-    )
-    sessions = []
+    incumbent_row_data = None
     role_name = None
-    if incumbent_row.data:
-        role_id = incumbent_row.data[0]["claimed_role_id"]
+    sessions = []
+
+    if kind == "artifact":
+        incumbent_row = (
+            sb.table("incumbents")
+            .select("id, claimed_role_id, created_at")
+            .eq("org_artifact_id", artifact_id)
+            .eq("position_id", position_id)
+            .is_("ended_at", "null")
+            .execute()
+        )
+        if incumbent_row.data:
+            incumbent_row_data = incumbent_row.data[0]
+            role_id = incumbent_row_data["claimed_role_id"]
+            role_lookup = (
+                sb.table("roles")
+                .select("name")
+                .eq("id", role_id)
+                .execute()
+            )
+            if role_lookup.data:
+                role_name = role_lookup.data[0]["name"]
+            session_rows = (
+                sb.table("auth_sessions")
+                .select("id, client_session_id, created_at, expires_at")
+                .eq("role_id", role_id)
+                .is_("revoked_at", "null")
+                .gt("expires_at", "now()")
+                .order("created_at", desc=True)
+                .execute()
+            )
+            sessions = session_rows.data or []
+    else:
+        # Legacy path: the role itself IS the position. Look up by
+        # canonical role name and surface its sessions; synthesize an
+        # incumbent-shaped dict so the template renders the "claimed"
+        # branch instead of asking the user to PIN-claim a position
+        # that's already a real role.
+        canonical_name = f"{account_handle}/{org_slug}/{position_id}"
         role_lookup = (
             sb.table("roles")
-            .select("name")
-            .eq("id", role_id)
+            .select("id, name, created_at")
+            .eq("name", canonical_name)
+            .is_("deleted_at", "null")
             .execute()
         )
         if role_lookup.data:
-            role_name = role_lookup.data[0]["name"]
-        session_rows = (
-            sb.table("auth_sessions")
-            .select("id, client_session_id, created_at, expires_at")
-            .eq("role_id", role_id)
-            .is_("revoked_at", "null")
-            .gt("expires_at", "now()")
-            .order("created_at", desc=True)
-            .execute()
-        )
-        sessions = session_rows.data or []
+            role_row = role_lookup.data[0]
+            role_name = role_row["name"]
+            incumbent_row_data = {"created_at": role_row["created_at"]}
+            session_rows = (
+                sb.table("auth_sessions")
+                .select("id, client_session_id, created_at, expires_at")
+                .eq("role_id", role_row["id"])
+                .is_("revoked_at", "null")
+                .gt("expires_at", "now()")
+                .order("created_at", desc=True)
+                .execute()
+            )
+            sessions = session_rows.data or []
 
     mcp_base = _mcp_origin()
-    canonical_url = (
-        f"{mcp_base}/{request.path_params['account']}"
-        f"/{request.path_params['org']}/{position_id}"
-    )
+    canonical_url = f"{mcp_base}/{account_handle}/{org_slug}/{position_id}"
     return TEMPLATES.TemplateResponse(
         request,
         "_position_panel.html",
@@ -786,9 +863,10 @@ async def chart_position_panel(request: Request):
                 f"connector, and review the existing notes and memos. "
                 f"I'll deliver the PIN."
             ),
-            "incumbent": incumbent_row.data[0] if incumbent_row.data else None,
+            "incumbent": incumbent_row_data,
             "role_name": role_name,
             "sessions": sessions,
+            "is_legacy": kind == "legacy",
         },
     )
 

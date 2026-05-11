@@ -122,7 +122,8 @@ async def test_roles_page_handler_runs_with_mocked_dependencies():
     with patch.object(panel, "_current_user", return_value=fake_user), \
          patch.object(panel, "_account_id_for_user", return_value=fake_account_id), \
          patch.object(panel, "supabase", return_value=fake_sb), \
-         patch.object(panel, "artifacts_for_account", return_value=[]):
+         patch.object(panel, "artifacts_for_account", return_value=[]), \
+         patch.object(panel, "orgs_for_account", return_value=[]):
         response = await panel.roles_page(request)
 
     # The handler returns either a TemplateResponse (200) or a

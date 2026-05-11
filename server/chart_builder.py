@@ -120,10 +120,14 @@ def build_mermaid_for_artifact(
             continue
         if rfrom not in position_ids or rto not in position_ids:
             continue
+        # Mermaid `graph TD` places arrow sources above their targets,
+        # so we emit parent→child to get directors/POs at the top of
+        # the chart (Director's preferred orientation 2026-05-11).
         if rtype == "reports_to":
-            lines.append(f"    {rfrom} --> {rto}")
-        else:  # directs
+            # `from` reports to `to` → `to` is parent → parent at top.
             lines.append(f"    {rto} --> {rfrom}")
+        else:  # directs: `from` directs `to` → `from` is parent.
+            lines.append(f"    {rfrom} --> {rto}")
 
     # Secondary edges (dashed, labeled).
     for rel in relationships:
@@ -162,6 +166,96 @@ def build_mermaid_for_artifact(
     )
 
     return "\n".join(lines)
+
+
+def synthesize_legacy_org_content(
+    legacy_org: dict,
+    roles: list[dict],
+    account_handle: str,
+) -> dict:
+    """Build an opencatalog-shaped content dict from a legacy `orgs` row.
+
+    Phase F F-chart follow-up. Legacy orgs (auto-migrated `personal`
+    org from Phase C, plus anything created via the panel before any
+    opencatalog upload) don't carry positions in items[] form — they
+    live in the separate `roles` table. To chart them, we synthesize
+    a content dict in the same shape `build_mermaid_for_artifact`
+    expects: top-level org metadata + items[] of orgdef:Position
+    entries, one per live role.
+
+    Position id is derived from role.name's canonical form
+    `<handle>/<org_slug>/<position_id>` (post migration 0010); the
+    suffix after the last slash is the position id, which matches
+    the URL form `mcp.openbraid.app/<handle>/<org_slug>/<position_id>`.
+
+    No relationships — legacy orgs don't store reports_to edges. The
+    chart renders as a flat list of nodes; adopters who want
+    structure should upload an .opencatalog via upload_org.
+    """
+    org_name = legacy_org["name"]
+    prefix = f"{account_handle}/{org_name}/"
+    items = []
+    for role in roles:
+        role_name = role["name"]
+        if role_name.startswith(prefix):
+            position_id = role_name[len(prefix):]
+        else:
+            position_id = role_name
+        item = {
+            "type": "orgdef:Position",
+            "id": position_id,
+            "name": position_id,
+        }
+        if role.get("roledef_url"):
+            item["role_definition"] = {"url": role["roledef_url"]}
+        items.append(item)
+    return {
+        "id": org_name,
+        "name": org_name,
+        "mission": legacy_org.get("mission"),
+        "vision": legacy_org.get("vision"),
+        "scope": legacy_org.get("scope"),
+        "governance_model": legacy_org.get("governance_model"),
+        "items": items,
+        "relationships": [],
+        "_synthesized": True,
+    }
+
+
+def build_live_map_for_legacy_org(
+    legacy_org: dict,
+    roles: list[dict],
+    account_handle: str,
+    sb,
+) -> dict[str, dict]:
+    """Per-position live state for a synthesized legacy org chart.
+
+    Unlike artifact-backed positions, legacy roles ARE the binding —
+    no incumbents indirection. Each role's active auth_sessions count
+    drives the chart's `claimed_idle` / `claimed_active` classDef.
+    """
+    org_name = legacy_org["name"]
+    prefix = f"{account_handle}/{org_name}/"
+    out: dict[str, dict] = {}
+    for role in roles:
+        role_name = role["name"]
+        position_id = (
+            role_name[len(prefix):] if role_name.startswith(prefix) else role_name
+        )
+        sessions = (
+            sb.table("auth_sessions")
+            .select("id")
+            .eq("role_id", role["id"])
+            .is_("revoked_at", "null")
+            .gt("expires_at", "now()")
+            .execute()
+        )
+        out[position_id] = {
+            "bound": True,
+            "active_session_count": len(sessions.data or []),
+            "role_id": role["id"],
+        }
+    return out
 
 
 def build_live_map_for_artifact(
