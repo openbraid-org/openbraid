@@ -179,11 +179,46 @@
             font-size: 1.05rem;
             color: var(--fg);
         }
+        .role-badge {
+            display: inline-block;
+            margin-left: 0.5rem;
+            padding: 0.1rem 0.45rem;
+            border-radius: 0.25rem;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 600;
+            vertical-align: 0.15em;
+        }
+        .role-badge.artifact {
+            background: rgba(200, 169, 106, 0.12);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+        }
+        .role-badge.legacy {
+            background: transparent;
+            color: var(--muted);
+            border: 1px solid var(--border);
+        }
         .role-meta {
             font-size: 0.8rem;
             color: var(--muted);
             margin-top: 0.3rem;
             font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        }
+        .role-delete-btn {
+            background: transparent;
+            color: var(--muted);
+            border: 1px solid var(--border);
+            padding: 0.3rem 0.7rem;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-family: inherit;
+        }
+        .role-delete-btn:hover {
+            color: var(--error);
+            border-color: var(--error);
         }
         .access-cell .label,
         .pin-cell .label {
@@ -320,14 +355,21 @@
             {% for r in roles %}
             <li class="role-card">
                 <div>
-                    <div class="role-name">{{ r.name }}</div>
+                    <div class="role-name">
+                        {{ r.org_name }}/{{ r.position_id }}
+                        {% if r.is_artifact_bound %}
+                        <span class="role-badge artifact" title="Bound to an artifact position via incumbents table">artifact</span>
+                        {% else %}
+                        <span class="role-badge legacy" title="Pre-Phase-E role under the legacy orgs/roles tables">legacy</span>
+                        {% endif %}
+                    </div>
                     <div class="role-meta">
                         created {{ r.created_at[:10] }}{% if r.roledef_url %} · roledef: <a href="{{ r.roledef_url }}" style="color: var(--muted)" target="_blank">{{ r.roledef_url[:40] }}{% if r.roledef_url|length > 40 %}…{% endif %}</a>{% endif %}
                     </div>
                     <div style="margin-top: 0.4rem; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 0.75rem; color: var(--muted); user-select: all;">
                         {{ r.canonical_url }}
                     </div>
-                    <div style="margin-top: 0.6rem; display: flex; gap: 0.6rem; align-items: center;">
+                    <div style="margin-top: 0.6rem; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
                         <a href="/panel/roles/{{ r.id }}/notes" style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600;">Notes →</a>
                         <button
                             type="button"
@@ -335,6 +377,11 @@
                             data-prompt="{{ r.recommended_prompt }}"
                             style="background: transparent; color: var(--muted); border: 1px solid var(--border); padding: 0.3rem 0.7rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.8rem; font-family: inherit;"
                         >📋 Copy prompt</button>
+                        {% if not r.is_artifact_bound %}
+                        <form method="post" action="/panel/roles/{{ r.id }}/delete" style="display: inline; margin: 0;" onsubmit="return confirm('Soft-delete role &quot;{{ r.org_name }}/{{ r.position_id }}&quot;? Memos stay in the DB but the role no longer appears in this list.');">
+                            <button type="submit" class="role-delete-btn">Delete</button>
+                        </form>
+                        {% endif %}
                     </div>
                 </div>
                 <div class="access-cell">
