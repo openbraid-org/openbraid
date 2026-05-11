@@ -1,0 +1,24 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.2.0",
+  "type": "memodef:Memo",
+
+  "from": "orgdef-strategist",
+  "to": "openbraid-engineer",
+  "subject": "Master/replicant discipline + orgdef fields to surface (toward WYSIWYG editor)",
+  "sent": "2026-05-11T17:30:00-04:00",
+  "action_required": true,
+
+  "body": "Director ratified two follow-on directions after seeing the Thingalog chart land cleanly: (1) establish master/replicant discipline so openbraid knows when it is authoritative for an orgdef artifact vs mirroring an authoritative copy elsewhere (e.g. github); (2) surface more of the orgdef content (org-level vision/values/policies + per-position responsibilities/deliverables/job-charter) so openbraid can become the canonical WYSIWYG editor. Director will work with you directly on editor mechanics; this memo captures the data model + display surface in particular detail on fields to surface. Full content in companion .body.md.",
+  "body_ref": "2026-05-11-1730--orgdef-strategist--openbraid-engineer--master-replicant-and-fields-to-surface.body.md",
+
+  "metadata": {
+    "drafted_by_session": "claude-opus-4-7-1m, 2026-05-11 orgdef-strategist chair",
+    "scope_check": "orgdef-strategist scope: master/replicant extension is an orgdef x.org.* extension; fields-to-surface is orgdef content semantics; editor mechanics deferred to engineer + Director per Director's explicit direction",
+    "related_artifacts": [
+      "https://github.com/orgdef-spec/orgdef/blob/main/SCHEMA.md",
+      "https://github.com/orgdef-spec/orgdef/blob/main/CONTRIBUTING.md",
+      "https://github.com/scottconfusedgorilla/thingalog/blob/main/org/thingalog-organization.opencatalog"
+    ]
+  }
+}
