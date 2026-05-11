@@ -441,6 +441,26 @@
                 <div class="side-panel-empty">Click any position to see its claim or live-session detail.</div>
             </aside>
         </div>
+
+        {% if recent_edits %}
+        <div style="margin-top: 2rem; background: var(--card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem 1.5rem;">
+            <details>
+                <summary style="cursor: pointer; list-style: none; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;">
+                    Recent edits · {{ recent_edits|length }}
+                </summary>
+                <div style="margin-top: 0.75rem; font-size: 0.78rem; font-family: ui-monospace, 'SF Mono', Menlo, monospace; line-height: 1.6;">
+                    {% for e in recent_edits %}
+                    <div style="padding: 0.4rem 0; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; align-items: baseline;">
+                        <span style="color: var(--muted); font-size: 0.72rem;">{{ e.created_at[:19] }}Z</span>
+                        <span style="color: var(--accent); font-weight: 600;">{{ e.tool_name }}</span>
+                        <span style="color: var(--fg); flex: 1; min-width: 12rem;">{{ e.patch_summary }}</span>
+                        <span style="color: var(--muted); font-size: 0.72rem;">v{{ e.version_before or "?" }} → v{{ e.version_after or "?" }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </details>
+        </div>
+        {% endif %}
     </main>
 </body>
 </html>

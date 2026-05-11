@@ -715,10 +715,33 @@ async def chart_page(request: Request):
     resolved, err = await _resolve_chart_context(request)
     if err:
         return err
-    user, _account, account_handle, org_slug, content, live, kind, _ = resolved
+    user, _account, account_handle, org_slug, content, live, kind, artifact_id = resolved
 
     mermaid_text = build_mermaid_for_artifact(content, live=live)
     master = detect_master_state(content)
+
+    # Recent edits audit trail (F-edit). Only meaningful for artifact-
+    # backed orgs (legacy synthesized orgs don't carry an
+    # org_artifact_id). Best-effort: if the table doesn't exist yet
+    # (migration 0012 not applied), surface nothing rather than crash.
+    recent_edits = []
+    if kind == "artifact" and artifact_id:
+        try:
+            edits_rows = (
+                supabase()
+                .table("org_artifact_edits")
+                .select(
+                    "id, tool_name, patch_summary, version_before, "
+                    "version_after, created_at, edited_by_role_id"
+                )
+                .eq("org_artifact_id", artifact_id)
+                .order("created_at", desc=True)
+                .limit(20)
+                .execute()
+            )
+            recent_edits = edits_rows.data or []
+        except Exception:  # noqa: BLE001 — graceful pre-migration
+            recent_edits = []
 
     # Catalog-level "About this org" fields per orgdef SCHEMA v1.0.0.
     # All optional; the template renders each section only when its
@@ -759,6 +782,7 @@ async def chart_page(request: Request):
             ),
             "notice": request.query_params.get("notice"),
             "error": request.query_params.get("error"),
+            "recent_edits": recent_edits,
         },
     )
 

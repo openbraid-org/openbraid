@@ -30,11 +30,14 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from server.tool_impls import (
     tool_auth_with_pin_impl,
+    tool_bump_version_impl,
     tool_claim_role_impl,
     tool_list_inbox_impl,
     tool_mark_read_impl,
     tool_read_memo_impl,
     tool_send_memo_impl,
+    tool_update_org_metadata_impl,
+    tool_update_position_impl,
     tool_upload_org_impl,
 )
 
@@ -267,6 +270,105 @@ async def upload_org(
         session_token=session_token,
         org_slug=org_slug,
         content=content,
+    )
+
+
+@mcp.tool()
+async def update_position(
+    session_token: str,
+    org_slug: str,
+    position_id: str,
+    patch: dict,
+    expected_version: str | None = None,
+) -> dict:
+    """Patch a Position item's fields inside an opencatalog.
+
+    `patch` is a partial dict of position-level fields. Top-level keys
+    in the patch replace the same keys in the target Position item;
+    arrays (responsibilities, deliverables, success_indicators) are
+    replaced wholesale — caller composes the full new array.
+
+    On success the artifact's version auto-bumps (patch-level), and
+    an audit row lands in `org_artifact_edits`. Replicant orgs reject.
+
+    Args:
+        session_token: From a successful `auth_with_pin`.
+        org_slug: URL slug of the opencatalog to edit.
+        position_id: id of the Position item inside items[].
+        patch: partial dict of fields to overwrite.
+        expected_version: optional optimistic-concurrency check; if
+            set and the stored version doesn't match, raises.
+
+    Returns:
+        dict with: artifact_id, org_slug, version_before, version_after.
+    """
+    return await tool_update_position_impl(
+        session_token=session_token,
+        org_slug=org_slug,
+        position_id=position_id,
+        patch=patch,
+        expected_version=expected_version,
+    )
+
+
+@mcp.tool()
+async def update_org_metadata(
+    session_token: str,
+    org_slug: str,
+    patch: dict,
+    expected_version: str | None = None,
+) -> dict:
+    """Patch catalog-level org metadata (mission, vision, etc.).
+
+    Cannot touch the catdef envelope (catdef/orgdef/type), id, or
+    items[]. Auto-bumps patch-level version when `version` is not in
+    the patch.
+
+    Args:
+        session_token: From a successful `auth_with_pin`.
+        org_slug: URL slug of the opencatalog.
+        patch: partial dict of top-level fields (mission, vision,
+            scope, governance_model, values, red_lines, name, ...).
+        expected_version: optional optimistic-concurrency check.
+
+    Returns:
+        dict with: artifact_id, org_slug, version_before, version_after.
+    """
+    return await tool_update_org_metadata_impl(
+        session_token=session_token,
+        org_slug=org_slug,
+        patch=patch,
+        expected_version=expected_version,
+    )
+
+
+@mcp.tool()
+async def bump_version(
+    session_token: str,
+    org_slug: str,
+    kind: str = "patch",
+    expected_version: str | None = None,
+) -> dict:
+    """Explicit semver bump without other changes.
+
+    Use after a batch of update_position / update_org_metadata calls
+    when you want to stamp a coherent major or minor version. Logs
+    an audit row so the version trail stays reconstructable.
+
+    Args:
+        session_token: From a successful `auth_with_pin`.
+        org_slug: URL slug of the opencatalog.
+        kind: "patch" | "minor" | "major".
+        expected_version: optional optimistic-concurrency check.
+
+    Returns:
+        dict with: artifact_id, org_slug, version_before, version_after.
+    """
+    return await tool_bump_version_impl(
+        session_token=session_token,
+        org_slug=org_slug,
+        kind=kind,
+        expected_version=expected_version,
     )
 
 

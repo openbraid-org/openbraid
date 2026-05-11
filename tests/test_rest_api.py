@@ -29,6 +29,9 @@ EXPECTED_ROUTES = {
     "/read_memo",
     "/mark_read",
     "/upload_org",
+    "/update_position",
+    "/update_org_metadata",
+    "/bump_version",
     "/export/{account}/{org_slug}",
 }
 
@@ -38,6 +41,9 @@ AUTH_REQUIRED = {
     "/read_memo",
     "/mark_read",
     "/upload_org",
+    "/update_position",
+    "/update_org_metadata",
+    "/bump_version",
 }
 AUTH_NOT_REQUIRED = {
     "/claim_role",

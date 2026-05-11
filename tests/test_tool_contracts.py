@@ -44,6 +44,18 @@ EXPECTED_TOOLS: dict[str, dict[str, set[str]]] = {
         "required": {"session_token", "org_slug", "content"},
         "optional": set(),
     },
+    "update_position": {
+        "required": {"session_token", "org_slug", "position_id", "patch"},
+        "optional": {"expected_version"},
+    },
+    "update_org_metadata": {
+        "required": {"session_token", "org_slug", "patch"},
+        "optional": {"expected_version"},
+    },
+    "bump_version": {
+        "required": {"session_token", "org_slug"},
+        "optional": {"kind", "expected_version"},
+    },
 }
 
 

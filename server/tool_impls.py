@@ -25,6 +25,7 @@ from server.db import (
     session_expiry,
     supabase,
 )
+from server.master_state import detect_master_state
 
 
 async def tool_claim_role_impl(
@@ -586,3 +587,329 @@ async def tool_mark_read_impl(session_token: str, memo_id: str) -> dict:
             f"Memo {memo_id} not found in this role's mailbox"
         )
     return {"ok": True, "status": result.data[0]["status"]}
+
+
+# --- F-edit: patch-shaped edit tools for org_artifacts --------------------
+#
+# Per the 2026-05-11 reframe memo (engineer → strategist): editing
+# happens conversationally in the user's AI client via MCP tools.
+# openbraid stays the persistence + auth substrate; the panel stays
+# read-only. The tools below take patches and write back the full
+# canonical artifact, bumping version + logging an audit row each time.
+
+
+_SEMVER_PARTS = ("major", "minor", "patch")
+
+
+def _bump_semver(version: str, kind: str = "patch") -> str:
+    """Increment a dotted semver-ish string.
+
+    Tolerant: non-numeric segments are left intact (e.g. "1.0.0-rc1"
+    → "1.0.1-rc1" on patch bump). Three-segment "M.N.P" is the common
+    case; shorter strings get padded with zeros before bumping.
+    """
+    if kind not in _SEMVER_PARTS:
+        raise ValueError(
+            f"bump kind must be one of {_SEMVER_PARTS}; got {kind!r}"
+        )
+    if not isinstance(version, str) or not version:
+        return "0.0.1"
+    parts = version.split(".")
+    # Pad to three numeric parts.
+    while len(parts) < 3:
+        parts.append("0")
+    idx = _SEMVER_PARTS.index(kind)
+    # Strip any trailing non-numeric suffix on the target segment.
+    target = parts[idx]
+    digits = ""
+    suffix = ""
+    for i, ch in enumerate(target):
+        if ch.isdigit():
+            digits += ch
+        else:
+            suffix = target[i:]
+            break
+    n = int(digits) if digits else 0
+    parts[idx] = f"{n + 1}{suffix}"
+    # Zero everything to the right of the bumped segment.
+    for i in range(idx + 1, 3):
+        parts[i] = "0"
+    return ".".join(parts)
+
+
+def _resolve_account_for_session(session_token: str) -> str:
+    """Resolve session_token → account_id via the role lookup chain."""
+    role_id = get_role_id_from_token(session_token)
+    lookup = (
+        supabase()
+        .table("roles")
+        .select("account_id")
+        .eq("id", role_id)
+        .execute()
+    )
+    if not lookup.data:
+        raise ValueError("Session token's role no longer exists")
+    return role_id, lookup.data[0]["account_id"]
+
+
+def _load_artifact_for_edit(
+    account_id: str,
+    org_slug: str,
+    expected_version: str | None,
+) -> dict:
+    """Fetch the artifact + content for an edit operation.
+
+    Returns the org_artifacts row (with `content` populated). Raises:
+      - ValueError if no artifact for (account, slug)
+      - ValueError if the artifact is in replicant state (master_url
+        points elsewhere — editing is locked)
+      - ValueError if expected_version is set and doesn't match the
+        stored version (optimistic concurrency check)
+    """
+    result = (
+        supabase()
+        .table("org_artifacts")
+        .select("id, account_id, org_slug, content, version, created_at, updated_at")
+        .eq("account_id", account_id)
+        .eq("org_slug", org_slug)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    if not result.data:
+        raise ValueError(
+            f"No org artifact found for slug {org_slug!r} on this account. "
+            f"Upload it via upload_org before editing."
+        )
+    artifact = result.data[0]
+    master = detect_master_state(artifact["content"])
+    if not master["is_editable"]:
+        raise ValueError(
+            f"Org {org_slug!r} is a replicant (master at "
+            f"{master['master_url']!r}); editing is locked here. "
+            f"Edit at the master and resync."
+        )
+    if expected_version is not None and expected_version != artifact["version"]:
+        raise ValueError(
+            f"version conflict: expected {expected_version!r}, "
+            f"current is {artifact['version']!r}. Refetch and retry."
+        )
+    return artifact
+
+
+def _save_artifact_after_edit(
+    artifact: dict,
+    new_content: dict,
+    tool_name: str,
+    patch_summary: str,
+    edited_by_role_id: str,
+) -> dict:
+    """Write the new content back + log the audit row.
+
+    Re-validates the full content against SCHEMA v1.0.0 so a patch
+    can't bypass the same gates upload_org enforces. Bumps version
+    when the patch didn't explicitly set one. Returns the receipt
+    the tool impls hand to MCP / REST.
+    """
+    _validate_opencatalog_content(new_content, artifact["org_slug"])
+    new_version = new_content["version"]
+    sb = supabase()
+    sb.table("org_artifacts").update(
+        {
+            "content": new_content,
+            "version": new_version,
+            "updated_at": "now()",
+        }
+    ).eq("id", artifact["id"]).execute()
+    sb.table("org_artifact_edits").insert(
+        {
+            "org_artifact_id": artifact["id"],
+            "edited_by_role_id": edited_by_role_id,
+            "tool_name": tool_name,
+            "patch_summary": patch_summary,
+            "version_before": artifact["version"],
+            "version_after": new_version,
+        }
+    ).execute()
+    return {
+        "artifact_id": artifact["id"],
+        "org_slug": artifact["org_slug"],
+        "version_before": artifact["version"],
+        "version_after": new_version,
+    }
+
+
+def _apply_patch(target: dict, patch: dict) -> None:
+    """Top-level key replacement: each key in patch overwrites the
+    same key in target. Nested dicts/lists are replaced wholesale,
+    not deep-merged — caller is expected to compose the full new
+    field value when patching arrays."""
+    for k, v in patch.items():
+        target[k] = v
+
+
+def _summarize_patch(prefix: str, patch: dict) -> str:
+    """Render a short human-readable patch summary for the audit row."""
+    bits = []
+    for k, v in patch.items():
+        if isinstance(v, list):
+            bits.append(f"{k} ({len(v)} items)")
+        elif isinstance(v, dict):
+            bits.append(f"{k} (object)")
+        elif isinstance(v, str):
+            n = len(v)
+            bits.append(f"{k} ({n} chars)" if n > 60 else f"{k}")
+        else:
+            bits.append(k)
+    return f"{prefix} → " + ", ".join(bits) if bits else prefix
+
+
+async def tool_update_position_impl(
+    session_token: str,
+    org_slug: str,
+    position_id: str,
+    patch: dict,
+    expected_version: str | None = None,
+) -> dict:
+    """Patch a single Position item's fields.
+
+    `patch` is a partial dict of position-level fields. Top-level keys
+    in patch replace the same keys in the position item; arrays
+    (responsibilities[], deliverables[], success_indicators[]) are
+    replaced wholesale rather than appended — callers compose the
+    full new array.
+
+    Auto-bumps the artifact's patch-level version unless `patch`
+    explicitly carries a `version` field at the catalog level (it
+    doesn't — patch applies to the position item, not the catalog).
+
+    Replicant orgs reject editing with a friendly error.
+    """
+    if not isinstance(patch, dict) or not patch:
+        raise ValueError("patch must be a non-empty JSON object")
+    if "id" in patch and patch["id"] != position_id:
+        raise ValueError(
+            "patch must not change the position's id; "
+            "delete + add a fresh item if you need to rename"
+        )
+    if "type" in patch and patch["type"] != "orgdef:Position":
+        raise ValueError(
+            "patch must not change item type"
+        )
+
+    role_id, account_id = _resolve_account_for_session(session_token)
+    artifact = _load_artifact_for_edit(account_id, org_slug, expected_version)
+
+    content = artifact["content"]
+    items = content.get("items") or []
+    target_idx = None
+    for i, it in enumerate(items):
+        if isinstance(it, dict) and it.get("id") == position_id and it.get("type") == "orgdef:Position":
+            target_idx = i
+            break
+    if target_idx is None:
+        raise ValueError(
+            f"No Position item with id {position_id!r} in org {org_slug!r}"
+        )
+
+    new_content = dict(content)
+    new_items = list(items)
+    new_position = dict(items[target_idx])
+    _apply_patch(new_position, patch)
+    new_items[target_idx] = new_position
+    new_content["items"] = new_items
+    new_content["version"] = _bump_semver(content.get("version", "0.0.0"), "patch")
+
+    return _save_artifact_after_edit(
+        artifact,
+        new_content,
+        tool_name="update_position",
+        patch_summary=_summarize_patch(
+            f"update_position {position_id}", patch
+        ),
+        edited_by_role_id=role_id,
+    )
+
+
+_PROTECTED_CATALOG_KEYS = frozenset({"catdef", "orgdef", "type", "id", "items"})
+
+
+async def tool_update_org_metadata_impl(
+    session_token: str,
+    org_slug: str,
+    patch: dict,
+    expected_version: str | None = None,
+) -> dict:
+    """Patch catalog-level org metadata.
+
+    `patch` is a partial dict of top-level fields: name, mission,
+    vision, scope, governance_model, values, red_lines, description,
+    recommended_patterns, relationships, x.org.master_url,
+    x.org.org_location, x.* extensions. Same wholesale-replacement
+    semantics as update_position.
+
+    Cannot touch: catdef envelope (catdef, orgdef, type), id, or
+    items[] — those have dedicated tools / immutable structure.
+    `version` patches are accepted (caller can drive explicit semver);
+    when absent, patch-version auto-bumps.
+    """
+    if not isinstance(patch, dict) or not patch:
+        raise ValueError("patch must be a non-empty JSON object")
+    forbidden = _PROTECTED_CATALOG_KEYS & set(patch.keys())
+    if forbidden:
+        raise ValueError(
+            f"patch cannot change protected catalog keys "
+            f"{sorted(forbidden)}; use the dedicated tools or upload "
+            f"a new artifact via upload_org."
+        )
+
+    role_id, account_id = _resolve_account_for_session(session_token)
+    artifact = _load_artifact_for_edit(account_id, org_slug, expected_version)
+
+    new_content = dict(artifact["content"])
+    _apply_patch(new_content, patch)
+    if "version" not in patch:
+        new_content["version"] = _bump_semver(
+            new_content.get("version", "0.0.0"), "patch"
+        )
+
+    return _save_artifact_after_edit(
+        artifact,
+        new_content,
+        tool_name="update_org_metadata",
+        patch_summary=_summarize_patch("update_org_metadata", patch),
+        edited_by_role_id=role_id,
+    )
+
+
+async def tool_bump_version_impl(
+    session_token: str,
+    org_slug: str,
+    kind: str = "patch",
+    expected_version: str | None = None,
+) -> dict:
+    """Explicit version bump without other changes.
+
+    Callers that want to batch several edits and stamp a coherent
+    version at the end can call this last with kind="minor" or
+    kind="major". Updates the audit log with a "bump_version" row so
+    the version trail is reconstructable.
+    """
+    if kind not in _SEMVER_PARTS:
+        raise ValueError(
+            f"kind must be one of {_SEMVER_PARTS}; got {kind!r}"
+        )
+    role_id, account_id = _resolve_account_for_session(session_token)
+    artifact = _load_artifact_for_edit(account_id, org_slug, expected_version)
+
+    new_content = dict(artifact["content"])
+    new_content["version"] = _bump_semver(
+        new_content.get("version", "0.0.0"), kind
+    )
+
+    return _save_artifact_after_edit(
+        artifact,
+        new_content,
+        tool_name="bump_version",
+        patch_summary=f"bump_version → {kind}",
+        edited_by_role_id=role_id,
+    )

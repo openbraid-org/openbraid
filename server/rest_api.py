@@ -34,11 +34,14 @@ from server.canonical_json import canonicalize, sha256_hex
 from server.db import account_by_handle, artifact_by_account_and_slug
 from server.tool_impls import (
     tool_auth_with_pin_impl,
+    tool_bump_version_impl,
     tool_claim_role_impl,
     tool_list_inbox_impl,
     tool_mark_read_impl,
     tool_read_memo_impl,
     tool_send_memo_impl,
+    tool_update_org_metadata_impl,
+    tool_update_position_impl,
     tool_upload_org_impl,
 )
 
@@ -225,6 +228,54 @@ class UploadOrgResponse(BaseModel):
     slug_id_mismatch: bool
 
 
+class UpdatePositionRequest(BaseModel):
+    org_slug: str = Field(..., description="URL slug of the opencatalog to edit.")
+    position_id: str = Field(..., description="Position item id inside items[].")
+    patch: dict = Field(
+        ...,
+        description=(
+            "Partial dict of position-level fields to overwrite. "
+            "Arrays are replaced wholesale; caller composes the full "
+            "new array."
+        ),
+    )
+    expected_version: str | None = Field(
+        None,
+        description=(
+            "Optional optimistic concurrency check. If set and the "
+            "stored version doesn't match, the request rejects."
+        ),
+    )
+
+
+class UpdateOrgMetadataRequest(BaseModel):
+    org_slug: str = Field(..., description="URL slug of the opencatalog.")
+    patch: dict = Field(
+        ...,
+        description=(
+            "Partial dict of top-level org fields. Cannot touch "
+            "catdef/orgdef/type envelope, id, or items[]."
+        ),
+    )
+    expected_version: str | None = Field(None)
+
+
+class BumpVersionRequest(BaseModel):
+    org_slug: str = Field(..., description="URL slug of the opencatalog.")
+    kind: str = Field(
+        "patch",
+        description="patch | minor | major",
+    )
+    expected_version: str | None = Field(None)
+
+
+class EditReceipt(BaseModel):
+    artifact_id: str
+    org_slug: str
+    version_before: str
+    version_after: str
+
+
 # --- Routes -----------------------------------------------------------------
 
 
@@ -353,6 +404,67 @@ async def rest_upload_org(
             session_token=creds.credentials,
             org_slug=req.org_slug,
             content=req.content,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@api.post(
+    "/update_position",
+    response_model=EditReceipt,
+    summary="Patch a Position item's fields inside an opencatalog",
+)
+async def rest_update_position(
+    req: UpdatePositionRequest,
+    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+) -> dict:
+    try:
+        return await tool_update_position_impl(
+            session_token=creds.credentials,
+            org_slug=req.org_slug,
+            position_id=req.position_id,
+            patch=req.patch,
+            expected_version=req.expected_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@api.post(
+    "/update_org_metadata",
+    response_model=EditReceipt,
+    summary="Patch catalog-level org metadata (mission, vision, etc.)",
+)
+async def rest_update_org_metadata(
+    req: UpdateOrgMetadataRequest,
+    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+) -> dict:
+    try:
+        return await tool_update_org_metadata_impl(
+            session_token=creds.credentials,
+            org_slug=req.org_slug,
+            patch=req.patch,
+            expected_version=req.expected_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@api.post(
+    "/bump_version",
+    response_model=EditReceipt,
+    summary="Explicit semver bump without other changes",
+)
+async def rest_bump_version(
+    req: BumpVersionRequest,
+    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+) -> dict:
+    try:
+        return await tool_bump_version_impl(
+            session_token=creds.credentials,
+            org_slug=req.org_slug,
+            kind=req.kind,
+            expected_version=req.expected_version,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

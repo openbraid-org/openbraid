@@ -23,6 +23,9 @@ EXPECTED_TOOLS = {
     "read_memo": "tool_read_memo_impl",
     "mark_read": "tool_mark_read_impl",
     "upload_org": "tool_upload_org_impl",
+    "update_position": "tool_update_position_impl",
+    "update_org_metadata": "tool_update_org_metadata_impl",
+    "bump_version": "tool_bump_version_impl",
 }
 
 
