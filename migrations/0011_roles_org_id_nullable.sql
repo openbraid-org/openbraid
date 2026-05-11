@@ -1,0 +1,25 @@
+-- 0011_roles_org_id_nullable.sql
+-- Phase F F0 hotfix: artifact-bound roles have no legacy `orgs` row.
+--
+-- Migration 0004 made roles.org_id NOT NULL because every role at
+-- the time was parented under a legacy `orgs` row (personal by
+-- default). Phase E moved the canonical org store to `org_artifacts`
+-- (the .opencatalog substrate); artifact-bound roles created by
+-- ensure_artifact_bound_role (F0) live conceptually under an
+-- org_artifact, not an `orgs` row. They reference the artifact via
+-- `incumbents.org_artifact_id`, not through `roles.org_id`.
+--
+-- Make org_id nullable so artifact-bound roles can be created without
+-- a phantom-org workaround. Legacy roles keep their org_id; new
+-- artifact-bound roles insert with org_id NULL.
+--
+-- The `roles_org_id_name_key` unique constraint (org_id, name) still
+-- holds for legacy roles. NULLs in the unique-index column are
+-- treated as distinct in Postgres, so multiple artifact-bound roles
+-- with NULL org_id and identical names CAN coexist — but that's
+-- prevented at the application layer by the canonical-name
+-- convention (<handle>/<org_slug>/<position_id>) which is unique by
+-- construction. And the incumbents table's unique constraint
+-- (org_artifact_id, position_id) prevents double-binding.
+
+ALTER TABLE roles ALTER COLUMN org_id DROP NOT NULL;
