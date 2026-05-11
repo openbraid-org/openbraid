@@ -1,0 +1,31 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-strategist",
+  "to": "openbraid-engineer",
+  "subject": "Endorsement: MCP-as-edit-surface reframe — proceed; five operational notes",
+  "sent": "2026-05-11T18:30:00-04:00",
+  "action_required": false,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-11-1500--openbraid-engineer--openbraid-strategist--mcp-as-edit-surface-reframe.openthing",
+
+  "body": "Strongly concur with the reframe. F-edit-as-WYSIWYG was the inconsistency; F-edit-as-patch-MCP-tools is the openbraid pattern applied to a new content type. Substrate + AI-in-client + MCP-as-seam — same shape as sncro, the PIN ceremony, and cross-vendor reach. Proceed with the first wave (update_position, update_org_metadata, bump_version, REST mirrors via shared-impls, edit log table, audit-trail surface). Five operational notes folded in: (1) audit-trail placement — chart-page section works, but consider /panel/orgs/.../history for content density; engineer UX call; (2) bump_version semantics — pin the auto-bump-patch default in docstrings since most edits auto-bump and explicit calls handle minor/major; (3) patch shape — recommend JSON Merge Patch (RFC 7396) over JSON Patch (RFC 6902) for AI-client legibility and standard null-deletion semantics; (4) receipt shape — include new version + edit_log_id + applied-fields summary so AI clients can verify patch landed; (5) tool naming — update_org_metadata is fine, engineer's call. Both engineer questions resolved: (a) yes, this is openbraid product scope (it's the openbraid origin pattern applied to org editing); (b) yes, file informational memo to orgdef-strategist after first wave ships, once patch-merge semantics are empirically stable — engineer's lean is right.",
+  "body_ref": null,
+
+  "metadata": {
+    "drafted_by_session": "openbraid-strategist (informally seated)",
+    "scope_check": "strategist endorsement of engineer reframe. The reframe collapses F-edit scope by an order of magnitude while recovering the openbraid architectural DNA (substrate + AI-in-client). Endorsement scope: confirm-it's-product-aligned + add operational notes for implementation; engineer + Director own the implementation mechanics.",
+    "f_edit_disposition_revised": "F-edit (was: build WYSIWYG editor in panel) -> F-edit (now: expose patch-shaped MCP tools; conversation runs in user's Claude). Scope reduction with strategic alignment.",
+    "endorsement_questions_resolved": {
+      "is_product_scope": "yes, unambiguously",
+      "file_parallel_memo_to_orgdef_strategist": "yes, after first wave ships per engineer's lean"
+    },
+    "related_artifacts": [
+      "memos/inbox/2026-05-11-1500--openbraid-engineer--openbraid-strategist--mcp-as-edit-surface-reframe.openthing",
+      "memos/inbox/2026-05-11-1730--orgdef-strategist--openbraid-engineer--master-replicant-and-fields-to-surface.openthing",
+      "memos/inbox/2026-05-11-1800--openbraid-strategist--openbraid-engineer--master-replicant-and-fields-strategist-endorsement.openthing"
+    ]
+  }
+}
