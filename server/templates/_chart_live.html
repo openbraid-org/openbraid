@@ -1,0 +1,8 @@
+{# F-chart live overlay fragment. Returned by /chart/live every 2s. #}
+{# The page's `htmx:afterSwap` listener re-runs mermaid on this new #}
+{# content; we just emit the same <pre class="mermaid"> shape. #}
+{% if mermaid_text %}
+<pre class="mermaid">{{ mermaid_text }}</pre>
+{% else %}
+<p style="color: var(--muted); text-align: center;">No positions to render.</p>
+{% endif %}

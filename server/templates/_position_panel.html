@@ -1,0 +1,193 @@
+{# F-chart side panel for a clicked position. Reused for vacant and #}
+{# claimed states; the branching is on `incumbent` presence. #}
+
+<style scoped>
+    .pos-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 0 0 0.1rem;
+    }
+    .pos-id {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        color: var(--muted);
+        font-size: 0.8rem;
+    }
+    .pos-badge {
+        display: inline-block;
+        margin-left: 0.4rem;
+        padding: 0.1rem 0.45rem;
+        border-radius: 0.25rem;
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 600;
+        vertical-align: 0.15em;
+    }
+    .pos-badge.vacant {
+        background: rgba(200, 169, 106, 0.12);
+        color: var(--accent);
+        border: 1px solid var(--accent);
+    }
+    .pos-badge.claimed {
+        background: rgba(123, 195, 224, 0.12);
+        color: var(--notice);
+        border: 1px solid var(--notice);
+    }
+    .pos-section { margin-top: 1rem; }
+    .pos-section .label {
+        font-size: 0.7rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.4rem;
+    }
+    .pos-description {
+        font-size: 0.85rem;
+        color: var(--fg);
+        line-height: 1.5;
+    }
+    .canonical-url {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 0.75rem;
+        color: var(--muted);
+        word-break: break-all;
+        user-select: all;
+    }
+    .copy-prompt-btn {
+        background: transparent;
+        color: var(--accent);
+        border: 1px solid var(--accent);
+        padding: 0.5rem 1rem;
+        border-radius: 0.25rem;
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-family: inherit;
+        font-weight: 600;
+        margin-top: 0.6rem;
+    }
+    .session-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.6rem;
+        padding: 0.5rem 0.6rem;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid var(--border);
+        border-radius: 0.25rem;
+        margin-bottom: 0.4rem;
+    }
+    .session-info {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 0.75rem;
+        color: var(--muted);
+    }
+    .session-info .session-id { color: var(--fg); display: block; }
+    .session-revoke-btn {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        padding: 0.3rem 0.6rem;
+        border-radius: 0.25rem;
+        cursor: pointer;
+        font-size: 0.75rem;
+        font-family: inherit;
+    }
+    .session-revoke-btn:hover {
+        color: var(--error);
+        border-color: var(--error);
+    }
+</style>
+
+<h3 class="pos-title">
+    {{ position.name or position.id }}
+    {% if incumbent %}
+    <span class="pos-badge claimed">claimed</span>
+    {% else %}
+    <span class="pos-badge vacant">vacant</span>
+    {% endif %}
+</h3>
+<div class="pos-id">{{ position.id }}</div>
+
+{% if position.description %}
+<div class="pos-section">
+    <div class="label">Description</div>
+    <div class="pos-description">{{ position.description }}</div>
+</div>
+{% endif %}
+
+{% if position.role_definition %}
+<div class="pos-section">
+    <div class="label">Role definition</div>
+    <div class="pos-description" style="font-size: 0.8rem">
+        {{ position.role_definition.id }}
+        {% if position.role_definition.url %}
+        · <a href="{{ position.role_definition.url }}" target="_blank" style="color: var(--muted);">spec</a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if job %}
+<div class="pos-section">
+    <div class="label">Job definition</div>
+    <div class="pos-description" style="font-size: 0.8rem">
+        {{ job.name or job.id }} (v{{ job.version }})
+    </div>
+</div>
+{% endif %}
+
+<div class="pos-section">
+    <div class="label">Canonical URL</div>
+    <div class="canonical-url">{{ canonical_url }}</div>
+</div>
+
+{% if incumbent %}
+<div class="pos-section">
+    <div class="label">Bound role</div>
+    <div class="pos-description" style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 0.8rem;">
+        {{ role_name }}
+    </div>
+    <div style="font-size: 0.75rem; color: var(--muted); margin-top: 0.2rem;">
+        claimed {{ incumbent.created_at[:19] }}Z
+    </div>
+</div>
+
+<div class="pos-section">
+    <div class="label">Active sessions · {{ sessions|length }}</div>
+    {% if sessions %}
+    {% for s in sessions %}
+    <div class="session-row">
+        <div class="session-info">
+            <span class="session-id" title="{{ s.client_session_id }}">{{ s.client_session_id[:20] }}{% if s.client_session_id|length > 20 %}…{% endif %}</span>
+            <span>expires {{ s.expires_at[:19] }}Z</span>
+        </div>
+        <form
+            method="post"
+            action="/panel/sessions/{{ s.id }}/revoke"
+            hx-post="/panel/sessions/{{ s.id }}/revoke"
+            hx-swap="none"
+            style="display: inline; margin: 0;"
+            onsubmit="return confirm('Revoke this session?');"
+        >
+            <button type="submit" class="session-revoke-btn">Revoke</button>
+        </form>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div style="color: var(--muted); font-size: 0.85rem;">No live sessions on the bound role.</div>
+    {% endif %}
+</div>
+{% else %}
+<div class="pos-section">
+    <div class="label">Claim prompt</div>
+    <div class="pos-description" style="font-size: 0.85rem;">
+        Hand this to a fresh AI session to claim the seat. PIN delivery happens via this panel.
+    </div>
+    <button
+        type="button"
+        class="copy-prompt-btn"
+        onclick="navigator.clipboard.writeText(this.dataset.prompt).then(() => { const o = this.textContent; this.textContent = '✓ Copied'; setTimeout(() => this.textContent = o, 1500); });"
+        data-prompt="{{ recommended_prompt }}"
+    >📋 Copy claim prompt</button>
+</div>
+{% endif %}

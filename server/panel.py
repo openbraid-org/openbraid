@@ -36,10 +36,18 @@ from server.auth import (
     sign_in_with_password,
     sign_up_with_password,
 )
+from server.chart_builder import (
+    build_live_map_for_artifact,
+    build_mermaid_for_artifact,
+)
 from server.db import (
+    account_by_handle,
+    artifact_by_account_and_slug,
     artifacts_for_account,
     ensure_account,
     ensure_personal_org,
+    find_job_in_artifact,
+    find_position_in_artifact,
     supabase,
 )
 
@@ -497,6 +505,17 @@ async def roles_page(request: Request):
                 }
             )
 
+    # Cross-links to per-org chart views (F-chart). Only artifact-
+    # backed orgs are chartable; legacy orgs don't carry positional
+    # structure in the items[] sense.
+    chart_links = [
+        {
+            "slug": a["org_slug"],
+            "name": (a.get("content") or {}).get("name") or a["org_slug"],
+        }
+        for a in account_artifacts
+    ]
+
     return TEMPLATES.TemplateResponse(
         request,
         "roles.html",
@@ -504,6 +523,8 @@ async def roles_page(request: Request):
             "user": user,
             "roles": enriched,
             "vacant_positions": vacant_positions,
+            "chart_links": chart_links,
+            "account_handle": handle,
             "no_account": False,
             "error": request.query_params.get("error"),
             "notice": request.query_params.get("notice"),
@@ -590,6 +611,185 @@ async def roles_create(request: Request):
     return RedirectResponse(
         f"/panel/roles?notice={quote_plus(f'Created role: {name}')}",
         status_code=303,
+    )
+
+
+async def _resolve_chart_artifact(request: Request):
+    """Helper: parse `{account}` + `{org}` path params, auth-check, and
+    return (user, account_row, artifact_row) or (None, redirect).
+
+    Used by all three F-chart routes. Auth-scoping: the {account}
+    segment MUST match the signed-in user's handle (email-localpart).
+    Cross-account viewing is out of scope for v1.
+    """
+    user = await _current_user(request)
+    if not user:
+        return None, RedirectResponse("/", status_code=303)
+
+    account_handle = request.path_params["account"]
+    org_slug = request.path_params["org"]
+
+    user_handle = (user.get("email") or "").split("@", 1)[0]
+    if user_handle != account_handle:
+        return None, RedirectResponse("/panel/roles", status_code=303)
+
+    account = account_by_handle(account_handle)
+    if not account:
+        return None, RedirectResponse(
+            "/panel/roles?error=No+openbraid+account+found", status_code=303
+        )
+
+    artifact = artifact_by_account_and_slug(account["id"], org_slug)
+    if not artifact:
+        return None, RedirectResponse(
+            f"/panel/roles?error=No+org+artifact+for+slug+{org_slug}",
+            status_code=303,
+        )
+
+    return (user, account, artifact), None
+
+
+async def chart_page(request: Request):
+    """Phase F F-chart: render the org-chart page for an artifact.
+
+    URL: GET /panel/orgs/{account}/{org}/chart
+
+    Page structure: a Mermaid container plus a side-panel container.
+    The Mermaid container polls /chart/live every 2 seconds so claim /
+    revoke state stays fresh; clicking any node triggers a JS callback
+    (`openPositionPanel`) that fetches the side-panel fragment.
+    """
+    resolved, err = await _resolve_chart_artifact(request)
+    if err:
+        return err
+    user, account, artifact = resolved
+
+    content = artifact["content"]
+    live = build_live_map_for_artifact(artifact["id"], supabase())
+    mermaid_text = build_mermaid_for_artifact(content, live=live)
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        "chart.html",
+        {
+            "user": user,
+            "account_handle": request.path_params["account"],
+            "org_slug": request.path_params["org"],
+            "org_name": content.get("name") or request.path_params["org"],
+            "org_mission": content.get("mission"),
+            "mermaid_text": mermaid_text,
+            "position_count": sum(
+                1 for it in (content.get("items") or [])
+                if isinstance(it, dict) and it.get("type") == "orgdef:Position"
+            ),
+        },
+    )
+
+
+async def chart_live(request: Request):
+    """HTMX fragment: re-rendered Mermaid text with current live overlay.
+
+    URL: GET /panel/orgs/{account}/{org}/chart/live
+
+    Returns just the `<pre class="mermaid">…</pre>` block + a tiny
+    inline script that re-runs `mermaid.run()` on the new content.
+    Polled every 2s by the page.
+    """
+    resolved, err = await _resolve_chart_artifact(request)
+    if err:
+        return err
+    _user, _account, artifact = resolved
+
+    content = artifact["content"]
+    live = build_live_map_for_artifact(artifact["id"], supabase())
+    mermaid_text = build_mermaid_for_artifact(content, live=live)
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        "_chart_live.html",
+        {"mermaid_text": mermaid_text},
+    )
+
+
+async def chart_position_panel(request: Request):
+    """HTMX fragment: side panel for a clicked node.
+
+    URL: GET /panel/orgs/{account}/{org}/positions/{position_id}
+
+    Renders different content depending on whether the position has a
+    live incumbents binding:
+      - vacant → canonical URL + copy-claim-prompt button
+      - claimed → role info (synthetic role.name, claimed_at, active
+        sessions count) + revoke-session affordance per session
+    """
+    resolved, err = await _resolve_chart_artifact(request)
+    if err:
+        return err
+    _user, account, artifact = resolved
+
+    position_id = request.path_params["position_id"]
+    position_item = find_position_in_artifact(artifact["content"], position_id)
+    if not position_item:
+        return Response(status_code=404)
+
+    job_item = None
+    jd = position_item.get("job_definition")
+    if isinstance(jd, dict) and isinstance(jd.get("id"), str):
+        job_item = find_job_in_artifact(artifact["content"], jd["id"])
+
+    sb = supabase()
+    incumbent_row = (
+        sb.table("incumbents")
+        .select("id, claimed_role_id, created_at")
+        .eq("org_artifact_id", artifact["id"])
+        .eq("position_id", position_id)
+        .is_("ended_at", "null")
+        .execute()
+    )
+    sessions = []
+    role_name = None
+    if incumbent_row.data:
+        role_id = incumbent_row.data[0]["claimed_role_id"]
+        role_lookup = (
+            sb.table("roles")
+            .select("name")
+            .eq("id", role_id)
+            .execute()
+        )
+        if role_lookup.data:
+            role_name = role_lookup.data[0]["name"]
+        session_rows = (
+            sb.table("auth_sessions")
+            .select("id, client_session_id, created_at, expires_at")
+            .eq("role_id", role_id)
+            .is_("revoked_at", "null")
+            .gt("expires_at", "now()")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        sessions = session_rows.data or []
+
+    mcp_base = _mcp_origin()
+    canonical_url = (
+        f"{mcp_base}/{request.path_params['account']}"
+        f"/{request.path_params['org']}/{position_id}"
+    )
+    return TEMPLATES.TemplateResponse(
+        request,
+        "_position_panel.html",
+        {
+            "position": position_item,
+            "job": job_item,
+            "canonical_url": canonical_url,
+            "recommended_prompt": (
+                f"Please claim role: {canonical_url} via the openbraid mcp "
+                f"connector, and review the existing notes and memos. "
+                f"I'll deliver the PIN."
+            ),
+            "incumbent": incumbent_row.data[0] if incumbent_row.data else None,
+            "role_name": role_name,
+            "sessions": sessions,
+        },
     )
 
 
@@ -846,4 +1046,10 @@ panel_routes = [
     Route("/panel/roles/{role_id}/live", role_live),
     Route("/panel/roles/{role_id}/notes", role_notes_page),
     Route("/panel/sessions/{session_id}/revoke", session_revoke, methods=["POST"]),
+    Route("/panel/orgs/{account}/{org}/chart", chart_page),
+    Route("/panel/orgs/{account}/{org}/chart/live", chart_live),
+    Route(
+        "/panel/orgs/{account}/{org}/positions/{position_id}",
+        chart_position_panel,
+    ),
 ]
