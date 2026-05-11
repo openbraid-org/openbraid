@@ -112,6 +112,104 @@ async def test_position_boot_endpoint_returns_artifact_payload_when_artifact_exi
     assert body["claim_instruction"] is None  # E1 read-only
 
 
+async def test_position_boot_endpoint_embeds_job_when_job_artifact_exists():
+    """Position has job_definition.id pointing at an ingested job
+    artifact → boot payload's job_definition carries the full content."""
+    fake_account = {
+        "id": "acct-uuid",
+        "email": "scott@confusedgorilla.com",
+        "auth_user_id": "x",
+        "created_at": "2026-05-08T00:00:00Z",
+    }
+    artifact_with_job_ref = {
+        **ARTIFACT_ROW,
+        "content": {
+            **ARTIFACT_CONTENT,
+            "positions": [
+                {
+                    "id": "implementer",
+                    "name": "Implementer",
+                    "status": "staffed",
+                    "job_definition": {
+                        "id": "implementer",
+                        "version": "1.0.0",
+                        "url": "https://mcp.openbraid.app/scott/thingalog/implementer.openthing",
+                    },
+                },
+            ],
+        },
+    }
+    job_content = {
+        "catdef": "1.4",
+        "roledef": "0.2.0",
+        "type": "roledef:Job",
+        "id": "implementer",
+        "name": "Implementer for Thingalog",
+        "version": "1.0.0",
+        "charter": "test charter",
+    }
+    job_row = {
+        "id": "job-uuid",
+        "org_artifact_id": "artifact-uuid-thingalog",
+        "job_id": "implementer",
+        "content": job_content,
+        "version": "1.0.0",
+    }
+    with patch.object(boot_url, "account_by_handle", return_value=fake_account), \
+         patch.object(boot_url, "artifact_by_account_and_slug", return_value=artifact_with_job_ref), \
+         patch.object(boot_url, "job_artifact_by_org_and_id", return_value=job_row):
+        request = _make_request(
+            {"account": "scott", "org": "thingalog", "position": "implementer"}
+        )
+        response = await boot_url.position_boot_endpoint(request)
+
+    import json
+    body = json.loads(response.body)
+    assert body["job_definition"]["content"] == job_content
+    assert body["job_definition"]["artifact_id"] == "job-uuid"
+    assert "diagnostic" not in body["job_definition"]
+
+
+async def test_position_boot_endpoint_diagnostic_when_job_referenced_but_not_uploaded():
+    """Position references a job_definition.id but no job_artifact row
+    exists → boot payload's job_definition carries reference + diagnostic."""
+    fake_account = {
+        "id": "acct-uuid",
+        "email": "scott@confusedgorilla.com",
+        "auth_user_id": "x",
+        "created_at": "2026-05-08T00:00:00Z",
+    }
+    artifact_with_job_ref = {
+        **ARTIFACT_ROW,
+        "content": {
+            **ARTIFACT_CONTENT,
+            "positions": [
+                {
+                    "id": "implementer",
+                    "name": "Implementer",
+                    "job_definition": {
+                        "id": "implementer",
+                        "url": "https://mcp.openbraid.app/scott/thingalog/implementer.openthing",
+                    },
+                },
+            ],
+        },
+    }
+    with patch.object(boot_url, "account_by_handle", return_value=fake_account), \
+         patch.object(boot_url, "artifact_by_account_and_slug", return_value=artifact_with_job_ref), \
+         patch.object(boot_url, "job_artifact_by_org_and_id", return_value=None):
+        request = _make_request(
+            {"account": "scott", "org": "thingalog", "position": "implementer"}
+        )
+        response = await boot_url.position_boot_endpoint(request)
+
+    import json
+    body = json.loads(response.body)
+    assert body["job_definition"]["id"] == "implementer"
+    assert "content" not in body["job_definition"]
+    assert "not yet" in body["job_definition"]["diagnostic"]
+
+
 async def test_position_boot_endpoint_falls_back_to_legacy_when_no_artifact():
     """When no artifact exists for the slug, falls back to legacy path
     via org_by_name → position_by_name → _build_boot_payload."""
