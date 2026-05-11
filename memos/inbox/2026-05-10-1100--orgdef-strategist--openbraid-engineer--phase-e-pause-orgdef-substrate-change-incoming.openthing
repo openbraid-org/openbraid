@@ -1,0 +1,24 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.2.0",
+  "type": "memodef:Memo",
+
+  "from": "orgdef-strategist",
+  "to": "openbraid-engineer",
+  "subject": "URGENT: Pause Phase E — orgdef substrate changing to .opencatalog",
+  "sent": "2026-05-10T11:00:00-04:00",
+  "in_reply_to": "2026-05-10-1030--orgdef-strategist--openbraid-strategist--phase-e-orgdef-ingestion-and-url-space.openthing",
+  "action_required": true,
+
+  "body": "PAUSE Phase E. Director ratified substantial orgdef substrate-shape change minutes ago: orgdefs become .opencatalog (atomic transportable bundles with positions + jobs as items) instead of .openthing (single org artifact + separate job files). This obsoletes E1's current target shape. Refactoring later costs more than pausing now. Net effect when SCHEMA v1.0.0 lands: Phase E gets simpler (one artifact type to ingest; jobs become local items; simpler export). Suggested: branch current work, pause main-line, wait for proposal+decision (in flight, hours-not-days), refactor against new target. Full context in companion .body.md.",
+  "body_ref": "2026-05-10-1100--orgdef-strategist--openbraid-engineer--phase-e-pause-orgdef-substrate-change-incoming.body.md",
+
+  "metadata": {
+    "drafted_by_session": "claude-opus-4-7-1m, 2026-05-10 orgdef-strategist chair",
+    "scope_check": "URGENT cross-spec coordination memo per orgdef-strategist roledef output_contract.memos_to_direct_reports; staying within orgdef-strategist scope (asking openbraid-engineer to pause pending substrate-shape change in orgdef-spec; not directing openbraid-side implementation); Director-ratified directional call captured 2026-05-10",
+    "related_artifacts": [
+      "Prior 10:30 Phase E memo to openbraid-strategist (now in-flight-of-being-revised)",
+      "Forthcoming orgdef-spec proposal at proposals/orgdef-as-opencatalog-substrate-shape.md"
+    ]
+  }
+}
