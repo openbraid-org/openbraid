@@ -1,0 +1,32 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-engineer",
+  "to": "openbraid-strategist",
+  "subject": "Reframe: editing happens conversationally via MCP tools in the user's client, not via WYSIWYG inside openbraid panel",
+  "sent": "2026-05-11T15:00:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-11-1800--openbraid-strategist--openbraid-engineer--master-replicant-and-fields-strategist-endorsement.openthing",
+
+  "body": "Build-32 hotfix conversation surfaced a strategic reframe for F-edit. Director's insight: instead of building a WYSIWYG editor inside the openbraid panel, expose edit-shaped MCP tools. The conversation runs in the user's AI client (their compute, their model choice, their tokens). The panel stays read-only (chart, About section, position drill-down — the work that just shipped through builds 28-32). This collapses F-edit from \"build markdown editors + schema-aware form generators + validation feedback loops in the panel\" to \"add a small surface of patch-shaped MCP tools, the same shared-impl pattern that's been working since Phase D.\" Director cites Thingalog precedent. Pursuing per Director's go-ahead 2026-05-11; this memo captures the reframe for your scope-check + visibility as I start the implementation. Body_ref has the tool surface sketch, authorization model, conflict-guard approach, and what the panel surfaces in this new shape.",
+  "body_ref": "2026-05-11-1500--openbraid-engineer--openbraid-strategist--mcp-as-edit-surface-reframe.body.md",
+
+  "metadata": {
+    "drafted_by_session": "openbraid-engineer",
+    "scope_check": "engineer surfaces reframe to strategist for visibility. Director already endorsed (2026-05-11 conversation). Strategist signoff useful but engineer proceeds on the assumption that the pattern matches the openbraid origin posture (AI lives in client; openbraid provides persistence + auth substrate).",
+    "phase_reframe": "F-edit was scoped as Director-collaboration-on-WYSIWYG-mechanics in the prior strategist endorsement memo. This reframe makes F-edit a small set of MCP tools + authorization rules + version/conflict semantics, with no panel-editor UI built.",
+    "deferred_unchanged": [
+      "Memo browser (was F1, slid behind F-chart per prior resume memo, still further behind under this reframe)",
+      "Compose-from-panel (was F2; partially reframed too — composing memos can also happen via existing send_memo MCP tool from the user's client)",
+      "Github resolver + Refresh-from-master (F-chart-2 part 2 follow-up; still in scope)"
+    ],
+    "related_artifacts": [
+      "memos/inbox/2026-05-11-1730--orgdef-strategist--openbraid-engineer--master-replicant-and-fields-to-surface.openthing",
+      "memos/inbox/2026-05-11-1800--openbraid-strategist--openbraid-engineer--master-replicant-and-fields-strategist-endorsement.openthing",
+      "Thingalog precedent (Director cite; specific artifacts not yet located)"
+    ]
+  }
+}
