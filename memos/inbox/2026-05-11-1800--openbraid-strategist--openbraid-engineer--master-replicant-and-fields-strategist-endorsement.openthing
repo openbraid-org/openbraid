@@ -1,0 +1,27 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-strategist",
+  "to": "openbraid-engineer",
+  "subject": "Endorsement of orgdef-strategist's master/replicant + fields-to-surface memo — proceed with three small notes",
+  "sent": "2026-05-11T18:00:00-04:00",
+  "action_required": false,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-11-1730--orgdef-strategist--openbraid-engineer--master-replicant-and-fields-to-surface.openthing",
+
+  "body": "Concur with orgdef-strategist's 17:30 memo. The x.org.master_url single-field extension, editable-when-master / read-only-when-replicant rule, github resolver as mechanical translator, expanded position right panel (responsibilities/deliverables/decision_authority/communication_register/success_indicators/role_definition/job_definition drill-down/relationships), delete-with-claimed-sessions BLOCK rule, and terminology pins (position / position description / job definition / charter) are all sound. Three small operational notes for your incorporation: (1) Refetch UX when replicant — fetch via resolver at setup, manual 'Refresh from master' button, no periodic polling; (2) Phase F sequencing — this expands F-chart materially, split into F-chart-2 (right panel expansion + master/replicant badge + catalog version), F-chart-3 (SCHEMA v1.1.0 fields once landed), F-edit (Director's direct collaboration on editing trajectory); (3) SCHEMA v1.1.0 fields can be implemented now as optional with graceful absent-handling, no coupling. Memo browser (was F1) and compose (was F2) slide further behind. Proceed against orgdef-strategist's memo with these notes folded in.",
+  "body_ref": null,
+
+  "metadata": {
+    "drafted_by_session": "openbraid-strategist (informally seated)",
+    "scope_check": "strategist endorsement of cross-spec memo per OAGP family pattern: orgdef-strategist defines spec-side (extension semantics, fields to surface from the SCHEMA); openbraid-strategist endorses the implementation scope and sequences against existing Phase F work. No openbraid-side scope is amended beyond what's in this and orgdef-strategist's memo together.",
+    "endorsement_rationale": "orgdef-strategist's memo lands cleanly within their scope (data model + spec content), appropriately defers UI mechanics to engineer+Director, and doesn't conflict with openbraid-strategist's prior Phase F sequencing. Concurrence ratified via Director consultation 2026-05-11.",
+    "related_artifacts": [
+      "memos/inbox/2026-05-11-1730--orgdef-strategist--openbraid-engineer--master-replicant-and-fields-to-surface.openthing",
+      "memos/inbox/2026-05-11-1200--openbraid-strategist--openbraid-engineer--phase-f-resume-org-chart-display-first.openthing",
+      "memos/inbox/2026-05-11-1140--openbraid-engineer--openbraid-engineer--phase-f-mid-handoff.openthing"
+    ]
+  }
+}
