@@ -92,6 +92,100 @@
             line-height: 1.5;
             max-width: 56rem;
         }
+        .about-block {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1.25rem 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .about-section + .about-section {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border);
+        }
+        .about-section .label {
+            font-size: 0.7rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 0.45rem;
+            font-weight: 600;
+        }
+        .about-prose {
+            font-size: 0.9rem;
+            color: var(--fg);
+            line-height: 1.55;
+        }
+        .about-prose.dim {
+            color: var(--muted);
+        }
+        .about-list {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+        .about-list li {
+            padding: 0.6rem 0.7rem;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            border-radius: 0.25rem;
+            margin-bottom: 0.4rem;
+        }
+        .about-list li .item-name {
+            font-weight: 600;
+            color: var(--fg);
+            margin-bottom: 0.25rem;
+            font-size: 0.85rem;
+        }
+        .about-list li .item-desc {
+            font-size: 0.82rem;
+            color: var(--fg);
+            line-height: 1.5;
+        }
+        .about-list li .item-rationale {
+            font-size: 0.78rem;
+            color: var(--muted);
+            margin-top: 0.3rem;
+            font-style: italic;
+            line-height: 1.45;
+        }
+        details.about-details > summary {
+            cursor: pointer;
+            list-style: none;
+            user-select: none;
+        }
+        details.about-details > summary::before {
+            content: "▸ ";
+            display: inline-block;
+            transition: transform 0.15s;
+            color: var(--accent);
+            font-weight: 600;
+        }
+        details.about-details[open] > summary::before {
+            transform: rotate(90deg);
+        }
+        details.about-details > summary .summary-title {
+            font-size: 0.7rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 600;
+        }
+        details.about-details > summary .summary-preview {
+            color: var(--muted);
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+        details.about-details[open] > summary .summary-preview {
+            display: none;
+        }
+        details.about-details[open] > summary .summary-title {
+            color: var(--muted);
+        }
+        details.about-details > div.about-body {
+            margin-top: 0.5rem;
+        }
         .chart-grid {
             display: grid;
             grid-template-columns: 1fr 22rem;
@@ -231,10 +325,88 @@
                 {% endif %}
             </h2>
             <div class="org-slug">{{ account_handle }}/{{ org_slug }} · {{ position_count }} position{% if position_count != 1 %}s{% endif %}{% if master and master.master_url %} · master: <a href="{{ master.master_url }}" target="_blank" rel="noopener" style="color: var(--muted); text-decoration: underline dotted;">{{ master.master_url }}</a>{% endif %}</div>
+        </div>
+
+        {% if org_mission or about.vision or about.scope or about.governance_model or about.values or about.red_lines %}
+        <div class="about-block">
             {% if org_mission %}
-            <div class="org-mission">{{ org_mission }}</div>
+            <div class="about-section">
+                <div class="label">Mission</div>
+                <div class="about-prose">{{ org_mission }}</div>
+            </div>
+            {% endif %}
+
+            {% if about.vision %}
+            <div class="about-section">
+                <div class="label">Vision</div>
+                <div class="about-prose">{{ about.vision }}</div>
+            </div>
+            {% endif %}
+
+            {% if about.scope %}
+            <div class="about-section">
+                <details class="about-details">
+                    <summary>
+                        <span class="summary-title">Scope</span>
+                        <span class="summary-preview">{{ about.scope[:90] }}{% if about.scope|length > 90 %}…{% endif %}</span>
+                    </summary>
+                    <div class="about-body about-prose">{{ about.scope }}</div>
+                </details>
+            </div>
+            {% endif %}
+
+            {% if about.governance_model %}
+            <div class="about-section">
+                <details class="about-details">
+                    <summary>
+                        <span class="summary-title">Governance model</span>
+                        <span class="summary-preview">{{ about.governance_model[:90] }}{% if about.governance_model|length > 90 %}…{% endif %}</span>
+                    </summary>
+                    <div class="about-body about-prose">{{ about.governance_model }}</div>
+                </details>
+            </div>
+            {% endif %}
+
+            {% if about.values %}
+            <div class="about-section">
+                <details class="about-details">
+                    <summary>
+                        <span class="summary-title">Values · {{ about.values|length }}</span>
+                        <span class="summary-preview">{% for v in about.values[:3] %}{{ v.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% if about.values|length > 3 %}, …{% endif %}</span>
+                    </summary>
+                    <ul class="about-list about-body">
+                        {% for v in about.values %}
+                        <li>
+                            {% if v.name %}<div class="item-name">{{ v.name }}</div>{% endif %}
+                            {% if v.description %}<div class="item-desc">{{ v.description }}</div>{% endif %}
+                            {% if v.rationale %}<div class="item-rationale">{{ v.rationale }}</div>{% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </details>
+            </div>
+            {% endif %}
+
+            {% if about.red_lines %}
+            <div class="about-section">
+                <details class="about-details">
+                    <summary>
+                        <span class="summary-title">Red lines · {{ about.red_lines|length }}</span>
+                        <span class="summary-preview">things this org will not do</span>
+                    </summary>
+                    <ul class="about-list about-body">
+                        {% for r in about.red_lines %}
+                        <li>
+                            {% if r.rule %}<div class="item-name">{{ r.rule }}</div>{% endif %}
+                            {% if r.rationale %}<div class="item-rationale">{{ r.rationale }}</div>{% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </details>
+            </div>
             {% endif %}
         </div>
+        {% endif %}
 
         <div class="chart-grid">
             <div>
