@@ -237,6 +237,16 @@ async def logout(request: Request):
     return response
 
 
+async def panel_redirect(request: Request):
+    """Phase F F4 consolidated control panel: /panel now redirects to
+    /panel/roles, which is the unified live-control surface (roles +
+    sessions + PINs all on one page, per-card polling)."""
+    user = await _current_user(request)
+    if not user:
+        return RedirectResponse("/", status_code=303)
+    return RedirectResponse("/panel/roles", status_code=303)
+
+
 async def panel(request: Request):
     user = await _current_user(request)
     if not user:
@@ -403,25 +413,6 @@ async def roles_page(request: Request):
 
     enriched = []
     for role in roles.data:
-        last_session = (
-            supabase()
-            .table("auth_sessions")
-            .select("created_at")
-            .eq("role_id", role["id"])
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        last_pin = (
-            supabase()
-            .table("pin_challenges")
-            .select("pin, created_at, expires_at, used_at, claim_what")
-            .eq("role_id", role["id"])
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-
         is_artifact_bound = role["id"] in artifact_slug_by_role_id
         # role.name is "<handle>/<org_slug>/<position_id>" post-0010;
         # split into parts so we can render org + position cleanly.
@@ -448,10 +439,6 @@ async def roles_page(request: Request):
                 "is_artifact_bound": is_artifact_bound,
                 "canonical_url": canonical_url,
                 "recommended_prompt": recommended_prompt,
-                "last_access": last_session.data[0]["created_at"]
-                if last_session.data
-                else None,
-                "last_pin": last_pin.data[0] if last_pin.data else None,
             }
         )
 
@@ -606,6 +593,112 @@ async def roles_create(request: Request):
     )
 
 
+async def role_live(request: Request):
+    """HTMX fragment: live state for one role.
+
+    Phase F F4 consolidated view: each role card on /panel/roles polls
+    this endpoint every 2 seconds to refresh:
+      - active auth_sessions (not revoked, not expired) with revoke
+        affordance per row
+      - pending pin_challenges (not used, not expired) with the PIN
+        displayed for the user to read back to the requesting AI
+
+    Auth-scoped to the signed-in user's account: a session_id in the
+    URL that doesn't belong to one of this user's roles 404s.
+    """
+    user = await _current_user(request)
+    if not user:
+        return Response(status_code=401)
+
+    account_id = _account_id_for_user(user)
+    if not account_id:
+        return Response(status_code=403)
+
+    role_id = request.path_params["role_id"]
+    role_check = (
+        supabase()
+        .table("roles")
+        .select("id")
+        .eq("id", role_id)
+        .eq("account_id", account_id)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    if not role_check.data:
+        return Response(status_code=404)
+
+    sessions = (
+        supabase()
+        .table("auth_sessions")
+        .select("id, client_session_id, created_at, expires_at")
+        .eq("role_id", role_id)
+        .is_("revoked_at", "null")
+        .gt("expires_at", "now()")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    pins = (
+        supabase()
+        .table("pin_challenges")
+        .select("id, pin, claim_what, created_at, expires_at")
+        .eq("role_id", role_id)
+        .is_("used_at", "null")
+        .gt("expires_at", "now()")
+        .order("created_at", desc=True)
+        .execute()
+    )
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        "_role_live.html",
+        {
+            "role_id": role_id,
+            "sessions": sessions.data or [],
+            "pins": pins.data or [],
+        },
+    )
+
+
+async def session_revoke(request: Request):
+    """POST /panel/sessions/{session_id}/revoke — set revoked_at = now().
+
+    Auth-scoped: the session must belong to a role owned by the
+    signed-in user's account. Otherwise 404 (no info leak about whether
+    the session exists for someone else).
+    """
+    user = await _current_user(request)
+    if not user:
+        return RedirectResponse("/", status_code=303)
+
+    account_id = _account_id_for_user(user)
+    if not account_id:
+        return RedirectResponse("/panel/roles", status_code=303)
+
+    session_id = request.path_params["session_id"]
+    session_check = (
+        supabase()
+        .table("auth_sessions")
+        .select("id, role_id, roles!inner(account_id)")
+        .eq("id", session_id)
+        .is_("revoked_at", "null")
+        .execute()
+    )
+    if not session_check.data:
+        # Either session doesn't exist, is already revoked, or belongs
+        # to another account. Don't leak which.
+        return Response(status_code=204)
+    row = session_check.data[0]
+    if row.get("roles", {}).get("account_id") != account_id:
+        return Response(status_code=204)
+
+    supabase().table("auth_sessions").update({"revoked_at": "now()"}).eq("id", session_id).execute()
+
+    # HTMX caller swaps in the updated fragment; return empty 204 and
+    # let the polling tick re-render. (Returning the fragment directly
+    # would require knowing which role to render.)
+    return Response(status_code=204)
+
+
 async def role_delete(request: Request):
     """Soft-delete a legacy role (Phase F F3).
 
@@ -745,10 +838,12 @@ panel_routes = [
     Route("/auth/logout", logout, methods=["POST"]),
     Route("/auth/email/login", email_login, methods=["POST"]),
     Route("/auth/email/signup", email_signup, methods=["POST"]),
-    Route("/panel", panel),
+    Route("/panel", panel_redirect),
     Route("/panel/pins", pin_list),
     Route("/panel/roles", roles_page),
     Route("/panel/roles/new", roles_create, methods=["POST"]),
     Route("/panel/roles/{role_id}/delete", role_delete, methods=["POST"]),
+    Route("/panel/roles/{role_id}/live", role_live),
     Route("/panel/roles/{role_id}/notes", role_notes_page),
+    Route("/panel/sessions/{session_id}/revoke", session_revoke, methods=["POST"]),
 ]
