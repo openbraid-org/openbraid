@@ -29,6 +29,7 @@ EXPECTED_ROUTES = {
     "/read_memo",
     "/mark_read",
     "/upload_org",
+    "/export/{account}/{org_slug}",
 }
 
 AUTH_REQUIRED = {
@@ -38,7 +39,11 @@ AUTH_REQUIRED = {
     "/mark_read",
     "/upload_org",
 }
-AUTH_NOT_REQUIRED = {"/claim_role", "/auth_with_pin"}
+AUTH_NOT_REQUIRED = {
+    "/claim_role",
+    "/auth_with_pin",
+    "/export/{account}/{org_slug}",
+}
 
 
 def test_openapi_spec_is_published():
@@ -60,14 +65,23 @@ def test_all_expected_routes_are_registered():
     )
 
 
-def test_all_routes_accept_post():
+GET_ROUTES = {"/export/{account}/{org_slug}"}
+
+
+def test_all_routes_accept_expected_method():
     r = client.get("/openapi.json")
     spec = r.json()
     for path in EXPECTED_ROUTES:
         methods = set(spec["paths"][path].keys())
-        assert "post" in methods, (
-            f"{path} should be POST, got methods: {methods}"
+        expected_method = "get" if path in GET_ROUTES else "post"
+        assert expected_method in methods, (
+            f"{path} should accept {expected_method.upper()}, got methods: {methods}"
         )
+
+
+def _operation_for(spec, path):
+    methods = spec["paths"][path]
+    return methods.get("post") or methods.get("get")
 
 
 def test_auth_required_endpoints_declare_bearer_security():
@@ -77,18 +91,18 @@ def test_auth_required_endpoints_declare_bearer_security():
     array on its operation object."""
     spec = client.get("/openapi.json").json()
     for path in AUTH_REQUIRED:
-        sec = spec["paths"][path]["post"].get("security")
+        sec = _operation_for(spec, path).get("security")
         assert sec, (
             f"{path} should declare a security requirement; got {sec}"
         )
 
 
 def test_auth_not_required_endpoints_have_no_security():
-    """claim_role and auth_with_pin run pre-auth (they initiate /
-    complete the PIN ceremony); they should NOT require a bearer."""
+    """Pre-auth endpoints (claim_role, auth_with_pin) and public-read
+    endpoints (export) should NOT require a bearer."""
     spec = client.get("/openapi.json").json()
     for path in AUTH_NOT_REQUIRED:
-        sec = spec["paths"][path]["post"].get("security")
+        sec = _operation_for(spec, path).get("security")
         # FastAPI emits `security` only when there IS one; absence is fine.
         assert not sec, (
             f"{path} should not declare a security requirement; got {sec}"

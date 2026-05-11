@@ -26,9 +26,12 @@ import secrets
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from server.canonical_json import canonicalize, sha256_hex
+from server.db import account_by_handle, artifact_by_account_and_slug
 from server.tool_impls import (
     tool_auth_with_pin_impl,
     tool_claim_role_impl,
@@ -355,3 +358,34 @@ async def rest_upload_org(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@api.get(
+    "/export/{account}/{org_slug}",
+    summary="Export the stored orgdef .opencatalog artifact byte-equivalent",
+    description=(
+        "Serves the stored opencatalog content as canonical JSON. The "
+        "response is `application/json; charset=utf-8` with an "
+        "`X-Content-SHA256` header carrying the lowercase-hex SHA-256 "
+        "of the canonical bytes (keys sorted, compact separators, "
+        "UTF-8). Public read — no Bearer required; mirrors the boot URL "
+        "stance that orgdef content is public per OAGP family v0 posture."
+    ),
+)
+async def rest_export_org(account: str, org_slug: str) -> Response:
+    acct = account_by_handle(account)
+    if not acct:
+        raise HTTPException(status_code=404, detail="account not found")
+    artifact = artifact_by_account_and_slug(acct["id"], org_slug)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="org artifact not found")
+
+    content = artifact["content"]
+    body = canonicalize(content)
+    digest = sha256_hex(content)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={
+            "X-Content-SHA256": digest,
+            "Cache-Control": "public, max-age=60",
+        },
+    )
