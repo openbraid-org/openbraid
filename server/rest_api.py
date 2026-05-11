@@ -36,6 +36,7 @@ from server.tool_impls import (
     tool_mark_read_impl,
     tool_read_memo_impl,
     tool_send_memo_impl,
+    tool_upload_org_impl,
 )
 
 api = FastAPI(
@@ -185,6 +186,37 @@ class MarkReadResponse(BaseModel):
     status: str
 
 
+class UploadOrgRequest(BaseModel):
+    org_slug: str = Field(
+        ...,
+        description=(
+            "URL slug for the org (e.g. 'thingalog'). Used in canonical "
+            "URLs: mcp.openbraid.app/<account>/<org_slug>/<position>. "
+            "SHOULD match content.id; if not, the response sets "
+            "slug_id_mismatch=true."
+        ),
+        examples=["thingalog"],
+    )
+    content: dict = Field(
+        ...,
+        description=(
+            "The orgdef.openthing artifact as a parsed JSON object. "
+            "Round-trip byte-equivalent storage required for E5 export. "
+            "MUST contain catdef, orgdef, type ('orgdef:Organization'), "
+            "id, name, and version fields."
+        ),
+    )
+
+
+class UploadOrgResponse(BaseModel):
+    artifact_id: str
+    org_slug: str
+    version: str
+    position_count: int
+    byte_count: int
+    slug_id_mismatch: bool
+
+
 # --- Routes -----------------------------------------------------------------
 
 
@@ -297,3 +329,22 @@ async def rest_mark_read(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@api.post(
+    "/upload_org",
+    response_model=UploadOrgResponse,
+    summary="Ingest an orgdef.openthing artifact as canonical content",
+)
+async def rest_upload_org(
+    req: UploadOrgRequest,
+    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+) -> dict:
+    try:
+        return await tool_upload_org_impl(
+            session_token=creds.credentials,
+            org_slug=req.org_slug,
+            content=req.content,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e

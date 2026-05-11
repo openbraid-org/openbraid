@@ -269,6 +269,162 @@ async def tool_read_memo_impl(session_token: str, memo_id: str) -> dict:
     return result.data[0]
 
 
+async def tool_upload_org_impl(
+    session_token: str,
+    org_slug: str,
+    content: dict,
+) -> dict:
+    """Ingest an orgdef.openthing artifact as canonical content for an
+    `<account>/<org_slug>` URL.
+
+    Phase E E0-prep. Per the orgdef-strategist 10:30 memo: openbraid is
+    the HOSTING layer; orgdef.openthing is the CONTENT layer. This
+    helper accepts a parsed JSON artifact, validates the catdef envelope
+    + the orgdef MUST fields, and stores the artifact byte-equivalent
+    in `org_artifacts.content` (JSONB). Round-trip on export must be
+    byte-equivalent; we store what we receive.
+
+    Authorization: any session_token belonging to the uploading
+    account grants account-level ingest authority. v0 posture; tighter
+    per-account-role authorization can land in a future phase.
+
+    Args:
+        session_token: From a successful `auth_with_pin`. The role's
+            account is the upload owner.
+        org_slug: URL slug for the org. Used in canonical URLs:
+            `mcp.openbraid.app/<account>/<org_slug>/<position>`.
+            SHOULD match `content["id"]`; we don't enforce equality
+            because adopters may prefer a friendlier slug than the
+            artifact's id field, but a mismatch is a Pass-with-notes
+            concern surfaced in the response.
+        content: The orgdef.openthing artifact as a parsed dict.
+            Stored as JSONB; must round-trip byte-equivalent.
+
+    Returns:
+        dict with: artifact_id (str), org_slug (str), version (str),
+        position_count (int), byte_count (int), slug_id_mismatch (bool,
+        true when org_slug != content["id"]).
+
+    Raises:
+        ValueError on validation failure with a user-presentable
+        message identifying the missing/malformed field.
+    """
+    # Validate inputs BEFORE any DB work. Malformed input shouldn't
+    # cost a Supabase round-trip; clearer errors and cheaper rejection.
+    if not isinstance(content, dict):
+        raise ValueError("content must be a JSON object (dict), got %s" % type(content).__name__)
+    _require_field(content, "catdef", str)
+    _require_field(content, "orgdef", str)
+    _require_field(content, "type", str)
+    if content["type"] != "orgdef:Organization":
+        raise ValueError(
+            f"content.type must be 'orgdef:Organization' for ingest; "
+            f"got {content['type']!r}. orgdef:Library and other types "
+            f"are out of scope for Phase E0-prep."
+        )
+    _require_field(content, "id", str)
+    _require_field(content, "name", str)
+    _require_field(content, "version", str)
+
+    if not isinstance(org_slug, str) or not org_slug:
+        raise ValueError("org_slug must be a non-empty string")
+    if "/" in org_slug or " " in org_slug:
+        raise ValueError(
+            f"org_slug must not contain '/' or whitespace; got {org_slug!r}"
+        )
+
+    slug_id_mismatch = org_slug != content["id"]
+
+    # Resolve uploader's account via the session_token → role → account chain.
+    sender_role_id = get_role_id_from_token(session_token)
+    role_lookup = (
+        supabase()
+        .table("roles")
+        .select("account_id")
+        .eq("id", sender_role_id)
+        .execute()
+    )
+    if not role_lookup.data:
+        raise ValueError("Session token's role no longer exists")
+    account_id = role_lookup.data[0]["account_id"]
+
+    # Upsert via select-then-update-or-insert. Postgres ON CONFLICT
+    # could express this in one statement but the supabase-py client's
+    # upsert path is awkward for partial-unique-index constraints; the
+    # explicit two-step is clearer and equally safe at v0 scale.
+    existing = (
+        supabase()
+        .table("org_artifacts")
+        .select("id")
+        .eq("account_id", account_id)
+        .eq("org_slug", org_slug)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    if existing.data:
+        # Update in place; preserves the artifact_id for stable URLs.
+        artifact_id = existing.data[0]["id"]
+        supabase().table("org_artifacts").update(
+            {
+                "content": content,
+                "version": content["version"],
+                "updated_at": "now()",
+            }
+        ).eq("id", artifact_id).execute()
+    else:
+        inserted = (
+            supabase()
+            .table("org_artifacts")
+            .insert(
+                {
+                    "account_id": account_id,
+                    "org_slug": org_slug,
+                    "content": content,
+                    "version": content["version"],
+                }
+            )
+            .execute()
+        )
+        artifact_id = inserted.data[0]["id"]
+
+    # Count positions for the receipt. Spec says positions is an array
+    # (may be empty for charter-only orgs).
+    positions = content.get("positions") or []
+    position_count = len(positions) if isinstance(positions, list) else 0
+
+    # byte_count is approximate (JSON re-serialization); useful for
+    # caller-side sanity ("the upload landed").
+    import json
+    byte_count = len(json.dumps(content, separators=(",", ":")))
+
+    return {
+        "artifact_id": artifact_id,
+        "org_slug": org_slug,
+        "version": content["version"],
+        "position_count": position_count,
+        "byte_count": byte_count,
+        "slug_id_mismatch": slug_id_mismatch,
+    }
+
+
+def _require_field(obj: dict, name: str, expected_type: type) -> None:
+    """Raise ValueError if `obj[name]` is missing or wrong type.
+
+    Used by `tool_upload_org_impl` for catdef-envelope + orgdef-MUST
+    field validation. Surfaces user-presentable error messages.
+    """
+    if name not in obj:
+        raise ValueError(f"Missing required field: '{name}'")
+    value = obj[name]
+    if not isinstance(value, expected_type):
+        raise ValueError(
+            f"Field '{name}' must be {expected_type.__name__}, "
+            f"got {type(value).__name__}"
+        )
+    if expected_type is str and not value:
+        raise ValueError(f"Field '{name}' must be non-empty")
+
+
 async def tool_mark_read_impl(session_token: str, memo_id: str) -> dict:
     """Transition a memo's status from inbox to read."""
     role_id = get_role_id_from_token(session_token)

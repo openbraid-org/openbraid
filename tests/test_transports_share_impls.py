@@ -22,6 +22,7 @@ EXPECTED_TOOLS = {
     "list_inbox": "tool_list_inbox_impl",
     "read_memo": "tool_read_memo_impl",
     "mark_read": "tool_mark_read_impl",
+    "upload_org": "tool_upload_org_impl",
 }
 
 
