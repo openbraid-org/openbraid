@@ -191,6 +191,95 @@ async def _build_artifact_boot_payload(
     }
 
 
+def _position_tree_dfs_order(content: dict) -> list[tuple[dict, int, str | None]]:
+    """Walk the orgdef's positions in depth-first tree order.
+
+    Phase E E4. Per orgdef SCHEMA v1.0.0 a position's place in the org
+    hierarchy comes from `reports_to` relationships, not from items[]
+    order. The walk:
+
+      1. Build a tree from `relationships[]` entries of type
+         "reports_to" (child `from` → parent `to`).
+      2. Roots are positions that don't appear as a `from` of any
+         reports_to edge (no one they report to inside the org).
+      3. DFS pre-order from each root, in items[] order at every level.
+      4. Append any positions unreachable from a root (cycle survivors
+         or orphans) at the end, in items[] order, with depth=0 and
+         parent_id=None.
+
+    Returns a list of (position_item, depth, parent_id) tuples. The
+    caller chooses what to include in the response shape; this
+    function is concerned only with ordering and tree shape.
+
+    Edge cases:
+      - No reports_to edges → flat list in items[] order, all depth=0
+      - Cycle → broken by visited-set; cycle members appear once
+      - "external:" or org-self-id endpoints → ignored (not positions)
+      - Position with multiple reports_to parents → first edge wins
+        (orgdef anti-pattern; documented downstream).
+    """
+    items = content.get("items") or []
+    if not isinstance(items, list):
+        return []
+
+    position_items: list[dict] = [
+        it for it in items
+        if isinstance(it, dict) and it.get("type") == "orgdef:Position"
+    ]
+    position_ids = {it["id"] for it in position_items if isinstance(it.get("id"), str)}
+    by_id = {it["id"]: it for it in position_items if isinstance(it.get("id"), str)}
+
+    parent_of: dict[str, str] = {}
+    children_of: dict[str, list[str]] = {pid: [] for pid in position_ids}
+    relationships = content.get("relationships") or []
+    if isinstance(relationships, list):
+        for rel in relationships:
+            if not isinstance(rel, dict):
+                continue
+            if rel.get("type") != "reports_to":
+                continue
+            child = rel.get("from")
+            parent = rel.get("to")
+            if not (isinstance(child, str) and isinstance(parent, str)):
+                continue
+            if child not in position_ids or parent not in position_ids:
+                continue
+            if child in parent_of:
+                # First-edge-wins; subsequent reports_to for the same
+                # child are ignored. orgdef SCHEMA discourages this.
+                continue
+            parent_of[child] = parent
+            children_of.setdefault(parent, []).append(child)
+
+    # Preserve items[] order at every sibling level.
+    items_order = {pid: idx for idx, pid in enumerate(by_id.keys())}
+    for kids in children_of.values():
+        kids.sort(key=lambda pid: items_order.get(pid, 1_000_000))
+
+    roots = [pid for pid in by_id.keys() if pid not in parent_of]
+
+    visited: set[str] = set()
+    out: list[tuple[dict, int, str | None]] = []
+
+    def dfs(pid: str, depth: int, parent: str | None) -> None:
+        if pid in visited:
+            return
+        visited.add(pid)
+        out.append((by_id[pid], depth, parent))
+        for child in children_of.get(pid, []):
+            dfs(child, depth + 1, pid)
+
+    for root in roots:
+        dfs(root, 0, None)
+
+    # Orphans / cycle survivors not reached by any root.
+    for pid in by_id.keys():
+        if pid not in visited:
+            out.append((by_id[pid], 0, None))
+
+    return out
+
+
 def _canonical_position_url(
     request: Request, handle: str, org_name: str, position_name: str
 ) -> str:
@@ -404,11 +493,7 @@ async def account_seg2_endpoint(request: Request) -> JSONResponse:
     artifact = artifact_by_account_and_slug(account["id"], seg2)
     if artifact:
         content = artifact["content"]
-        items = content.get("items") or []
-        position_items = [
-            it for it in items
-            if isinstance(it, dict) and it.get("type") == "orgdef:Position"
-        ]
+        ordered = _position_tree_dfs_order(content)
         return JSONResponse(
             {
                 "account": {
@@ -434,8 +519,10 @@ async def account_seg2_endpoint(request: Request) -> JSONResponse:
                         "name": p.get("name", p.get("id")),
                         "status": p.get("status"),
                         "role_definition": p.get("role_definition"),
+                        "depth": depth,
+                        "reports_to": parent,
                     }
-                    for p in position_items
+                    for p, depth, parent in ordered
                 ],
             }
         )
