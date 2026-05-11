@@ -34,11 +34,86 @@ from starlette.routing import Route
 
 from server.db import (
     account_by_handle,
+    artifact_by_account_and_slug,
+    artifacts_for_account,
+    find_position_in_artifact,
     org_by_name,
     orgs_for_account,
     position_by_name,
     supabase,
 )
+
+
+def _build_artifact_boot_payload(
+    account: dict,
+    artifact: dict,
+    position_data: dict,
+    canonical_url: str,
+) -> dict:
+    """Build the C4 boot payload from an artifact-backed position.
+
+    Phase E1-cutover: when a position resolves from `org_artifacts`
+    instead of the legacy `orgs`/`roles` tables, the boot payload's
+    `position` and `org_summary` come from the artifact's canonical
+    `content`. `role_definition` and `job_definition` are passed
+    through as references for E3/E2 to fetch later. `incumbent` and
+    `inbox_summary` are stub-shaped — full population lands when the
+    `incumbents` table maps artifact positions to openbraid roles
+    (future PR; tracked in the Phase E roadmap).
+    """
+    content = artifact["content"]
+    return {
+        "position": {
+            "id": position_data.get("id"),
+            "name": position_data.get("name", position_data.get("id")),
+            "org_id": artifact["id"],
+            "account_id": account["id"],
+            "role_definition": position_data.get("role_definition"),
+            "description": position_data.get("description"),
+            "status": position_data.get("status"),
+            "incumbent": position_data.get("incumbent"),
+        },
+        "org_summary": {
+            "id": artifact["id"],
+            "name": content.get("name"),
+            "slug": artifact["org_slug"],
+            "version": artifact.get("version"),
+            "mission": content.get("mission"),
+            "vision": content.get("vision"),
+            "scope": content.get("scope"),
+            "governance_model": content.get("governance_model"),
+            "org_location": content.get("x.org.org_location"),
+        },
+        "role_definition": position_data.get("role_definition"),
+        "job_definition": (
+            {"url": position_data["job_definition"]["url"]}
+            if isinstance(position_data.get("job_definition"), dict)
+            and position_data["job_definition"].get("url")
+            else None
+        ),
+        "incumbent": {
+            "active_sessions": 0,
+            "claimable": False,
+            "diagnostic": (
+                "Artifact-backed positions in Phase E1-cutover are read-only. "
+                "The incumbents table (mapping artifact positions to openbraid "
+                "auth identities) lands in a future PR; until then, claim_role "
+                "against this URL will fail. The position metadata, org context, "
+                "and role/job references are fully exposed for fresh-agent "
+                "instantiation contexts that read but don't yet claim."
+            ),
+        },
+        "inbox_summary": {
+            "inbox_unread": 0,
+            "notes_count": 0,
+            "diagnostic": (
+                "Per-position memo storage for artifact-backed positions "
+                "lands when the incumbents table maps to memo stores."
+            ),
+        },
+        "claim_instruction": None,
+        "_backed_by": "artifact",
+    }
 
 
 def _canonical_position_url(
@@ -172,13 +247,49 @@ def _build_boot_payload(
 
 
 async def account_orgs_endpoint(request: Request) -> JSONResponse:
-    """GET /{account} — list of orgs the account hosts."""
+    """GET /{account} — list of orgs the account hosts.
+
+    Phase E1-cutover: unions artifact-backed and legacy orgs. When a
+    legacy org's name overlaps with an artifact's `org_slug` (e.g.,
+    Director's `personal` legacy org also has an artifact uploaded
+    later), the artifact wins — its canonical content is the source
+    of truth per the orgdef-strategist principle.
+    """
     handle = request.path_params["account"]
     account = account_by_handle(handle)
     if not account:
         return JSONResponse({"error": "account not found"}, status_code=404)
 
-    orgs = orgs_for_account(account["id"])
+    artifacts = artifacts_for_account(account["id"])
+    legacy_orgs = orgs_for_account(account["id"])
+
+    artifact_slugs = {a["org_slug"] for a in artifacts}
+    items: list[dict] = []
+    for a in artifacts:
+        c = a["content"]
+        items.append(
+            {
+                "id": a["id"],
+                "slug": a["org_slug"],
+                "name": c.get("name"),
+                "version": a.get("version"),
+                "mission": c.get("mission"),
+                "_backed_by": "artifact",
+            }
+        )
+    for o in legacy_orgs:
+        if o["name"] in artifact_slugs:
+            continue
+        items.append(
+            {
+                "id": o["id"],
+                "slug": o["name"],
+                "name": o["name"],
+                "mission": o.get("mission"),
+                "_backed_by": "legacy",
+            }
+        )
+
     return JSONResponse(
         {
             "account": {
@@ -186,25 +297,27 @@ async def account_orgs_endpoint(request: Request) -> JSONResponse:
                 "handle": handle,
                 "email": account["email"],
             },
-            "orgs": [
-                {
-                    "id": o["id"],
-                    "name": o["name"],
-                    "mission": o.get("mission"),
-                }
-                for o in orgs
-            ],
+            "orgs": items,
         }
     )
 
 
 async def account_seg2_endpoint(request: Request) -> JSONResponse:
-    """GET /{account}/{seg2} — two-segment URL sugar.
+    """GET /{account}/{seg2} — two-segment URL sugar OR org-list.
 
-    Resolves seg2 as a position name (when the account hosts exactly
-    one org) or as an org name (when it hosts multiple). Mirrors
-    GitHub's `github.com/<user>/<repo>` convention and the orgdef-
-    strategist memo's two-segment sugar specification.
+    Phase E1-cutover: tries (in order):
+      1. Artifact match — seg2 is an artifact's org_slug → return that
+         artifact's positions list (an "org URL" response).
+      2. Legacy single-org sugar — if the account has exactly one
+         legacy org (no artifacts), seg2 is a position name.
+      3. Legacy multi-org — seg2 is the org name; return positions list.
+
+    Strict spec interpretation of 2-seg sugar requires "exactly one org"
+    (artifact + legacy combined). For backward compatibility with v0
+    URLs (e.g. /scott/personal-strategist), the legacy single-org-sugar
+    path still triggers when the account has no artifacts yet AND
+    exactly one legacy org. Adopters who upload artifacts and want
+    2-seg-position-shape URLs should use 3-seg URLs going forward.
     """
     handle = request.path_params["account"]
     seg2 = request.path_params["seg2"]
@@ -212,9 +325,48 @@ async def account_seg2_endpoint(request: Request) -> JSONResponse:
     if not account:
         return JSONResponse({"error": "account not found"}, status_code=404)
 
+    # 1. Artifact match — seg2 is an org_slug.
+    artifact = artifact_by_account_and_slug(account["id"], seg2)
+    if artifact:
+        content = artifact["content"]
+        positions = content.get("positions") or []
+        return JSONResponse(
+            {
+                "account": {
+                    "id": account["id"],
+                    "handle": handle,
+                    "email": account["email"],
+                },
+                "org": {
+                    "id": artifact["id"],
+                    "slug": artifact["org_slug"],
+                    "name": content.get("name"),
+                    "version": artifact.get("version"),
+                    "mission": content.get("mission"),
+                    "vision": content.get("vision"),
+                    "scope": content.get("scope"),
+                    "governance_model": content.get("governance_model"),
+                    "org_location": content.get("x.org.org_location"),
+                    "_backed_by": "artifact",
+                },
+                "positions": [
+                    {
+                        "id": p.get("id"),
+                        "name": p.get("name", p.get("id")),
+                        "status": p.get("status"),
+                        "role_definition": p.get("role_definition"),
+                    }
+                    for p in positions
+                    if isinstance(p, dict)
+                ],
+            }
+        )
+
+    # 2. Legacy single-org sugar (only fires when account has no artifacts
+    # AND exactly one legacy org — preserves v0 URLs).
+    artifacts = artifacts_for_account(account["id"])
     orgs = orgs_for_account(account["id"])
-    if len(orgs) == 1:
-        # Implicit-org case: seg2 is a position name.
+    if not artifacts and len(orgs) == 1:
         org = orgs[0]
         position = position_by_name(org["id"], seg2)
         if not position:
@@ -229,7 +381,7 @@ async def account_seg2_endpoint(request: Request) -> JSONResponse:
             _build_boot_payload(account, org, position, canonical_url)
         )
 
-    # Multi-org case: seg2 is an org name; return positions list.
+    # 3. Legacy multi-org — seg2 is an org name.
     org = org_by_name(account["id"], seg2)
     if not org:
         return JSONResponse({"error": "org not found"}, status_code=404)
@@ -248,6 +400,7 @@ async def account_seg2_endpoint(request: Request) -> JSONResponse:
                 "vision": org.get("vision"),
                 "scope": org.get("scope"),
                 "governance_model": org.get("governance_model"),
+                "_backed_by": "legacy",
             },
             "positions": [
                 {
@@ -262,7 +415,13 @@ async def account_seg2_endpoint(request: Request) -> JSONResponse:
 
 
 async def position_boot_endpoint(request: Request) -> JSONResponse:
-    """GET /{account}/{org}/{position} — fresh-agent boot payload."""
+    """GET /{account}/{org}/{position} — fresh-agent boot payload.
+
+    Phase E1-cutover: artifact-first read, legacy fallback. When an
+    org_artifact exists for (account, org_slug), the boot payload
+    derives from the artifact's canonical content. When none exists,
+    falls back to the legacy `orgs`/`roles` read path used in Phase C.
+    """
     handle = request.path_params["account"]
     org_name = request.path_params["org"]
     position_name = request.path_params["position"]
@@ -271,6 +430,27 @@ async def position_boot_endpoint(request: Request) -> JSONResponse:
     if not account:
         return JSONResponse({"error": "account not found"}, status_code=404)
 
+    # 1. Artifact-first.
+    artifact = artifact_by_account_and_slug(account["id"], org_name)
+    if artifact:
+        position_data = find_position_in_artifact(
+            artifact["content"], position_name
+        )
+        if not position_data:
+            return JSONResponse(
+                {"error": "position not found in artifact"},
+                status_code=404,
+            )
+        canonical_url = _canonical_position_url(
+            request, handle, org_name, position_name
+        )
+        return JSONResponse(
+            _build_artifact_boot_payload(
+                account, artifact, position_data, canonical_url
+            )
+        )
+
+    # 2. Legacy fallback.
     org = org_by_name(account["id"], org_name)
     if not org:
         return JSONResponse({"error": "org not found"}, status_code=404)
