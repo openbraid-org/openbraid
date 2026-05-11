@@ -269,50 +269,45 @@ def artifacts_for_account(account_id: str) -> list[dict]:
     return result.data or []
 
 
-_JOB_COLUMNS = (
-    "id, org_artifact_id, job_id, content, version, created_at, updated_at"
-)
-
-
-def job_artifact_by_org_and_id(
-    org_artifact_id: str, job_id: str
-) -> dict | None:
-    """Return the live job_artifacts row for (org_artifact_id, job_id), or None.
-
-    Phase E E2: when a fresh agent boots into an artifact-backed
-    position whose `job_definition.url` references a job, the boot
-    payload looks up the job by parsing the URL's terminal segment as
-    `job_id` and resolving it under the parent org_artifact. If the
-    job exists, the full artifact content is embedded; if not, the
-    payload carries the unresolved URL plus a diagnostic.
-    """
-    result = (
-        supabase()
-        .table("job_artifacts")
-        .select(_JOB_COLUMNS)
-        .eq("org_artifact_id", org_artifact_id)
-        .eq("job_id", job_id)
-        .is_("deleted_at", "null")
-        .execute()
-    )
-    return result.data[0] if result.data else None
-
-
 def find_position_in_artifact(content: dict, position_name: str) -> dict | None:
-    """Find a position in an artifact's content by id or name.
+    """Find a position in an .opencatalog artifact's items[] by id or name.
 
-    The orgdef SCHEMA addresses positions by `id`; URL handlers accept
-    either id or name for friendliness (some adopters write
-    URL-shaped ids; others write CamelCase names). First match wins.
+    Per orgdef SCHEMA v1.0.0 the content carries an `items[]` array of
+    type-tagged entries; positions are items with `type ==
+    "orgdef:Position"`. The SCHEMA addresses positions by `id`; URL
+    handlers accept either id or name for friendliness. First match
+    wins.
     """
-    positions = content.get("positions") or []
-    if not isinstance(positions, list):
+    items = content.get("items") or []
+    if not isinstance(items, list):
         return None
-    for p in positions:
-        if not isinstance(p, dict):
+    for it in items:
+        if not isinstance(it, dict):
             continue
-        if p.get("id") == position_name or p.get("name") == position_name:
-            return p
+        if it.get("type") != "orgdef:Position":
+            continue
+        if it.get("id") == position_name or it.get("name") == position_name:
+            return it
+    return None
+
+
+def find_job_in_artifact(content: dict, job_id: str) -> dict | None:
+    """Find a roledef:Job item in an .opencatalog by id.
+
+    Phase E opencatalog-refactor: positions reference jobs via
+    `job_definition.id`; the boot payload looks up the job inside the
+    SAME bundle's items[] array. Returns None if no matching Job item.
+    """
+    items = content.get("items") or []
+    if not isinstance(items, list):
+        return None
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        if it.get("type") != "roledef:Job":
+            continue
+        if it.get("id") == job_id:
+            return it
     return None
 
 

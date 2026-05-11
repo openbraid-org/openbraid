@@ -35,7 +35,6 @@ from server.tool_impls import (
     tool_mark_read_impl,
     tool_read_memo_impl,
     tool_send_memo_impl,
-    tool_upload_job_impl,
     tool_upload_org_impl,
 )
 
@@ -241,68 +240,30 @@ async def upload_org(
     org_slug: str,
     content: dict,
 ) -> dict:
-    """Ingest an orgdef.openthing artifact as canonical content for an
-    `<account>/<org_slug>` URL.
+    """Ingest an orgdef .opencatalog artifact as canonical content for
+    an `<account>/<org_slug>` URL.
 
-    Phase E E0-prep. Per the OAGP canonical-store principle: openbraid
-    is the HOSTING layer; orgdef.openthing is the CONTENT layer. This
-    tool stores the artifact byte-equivalent so full-fidelity export
-    round-trips later (Phase E5). Validation: catdef envelope check
-    (catdef, orgdef, type fields) + orgdef MUST fields (id, name,
-    version). The artifact is stored as JSONB; the type MUST be
-    `"orgdef:Organization"` (libraries and job artifacts are separate
-    surfaces).
+    Per orgdef SCHEMA v1.0.0 (.opencatalog substrate), an orgdef is one
+    atomic catalog with positions and jobs as type-tagged entries in
+    `content.items[]`. Stored byte-equivalent for Phase E5 round-trip.
 
-    Authorization: any session_token from a role belonging to the
-    uploading account grants account-level ingest authority.
+    Validation: catdef substrate envelope + orgdef MUST fields
+    (id, name, version) + items[] consistency (each item has type+id;
+    every position.job_definition.id resolves to a sibling
+    roledef:Job item; every relationships[].from/.to resolves to a
+    sibling Position id, the org's own id, or "external:" reference).
 
     Args:
         session_token: From a successful `auth_with_pin`.
-        org_slug: URL slug for the org (e.g. "thingalog"). Used in
-            `mcp.openbraid.app/<account>/<org_slug>/<position>`.
-            SHOULD match `content["id"]`; if not, the response flags
-            `slug_id_mismatch: true`.
-        content: The orgdef.openthing artifact as a parsed JSON
-            object. Round-trip byte-equivalent storage required for
-            Phase E5 full-fidelity export.
+        org_slug: URL slug for the org. SHOULD match content["id"];
+            mismatch surfaces as slug_id_mismatch=true in the receipt.
+        content: The .opencatalog artifact as parsed JSON.
 
     Returns:
-        dict with: artifact_id (str), org_slug (str), version (str),
-        position_count (int), byte_count (int), slug_id_mismatch (bool).
+        dict with: artifact_id, org_slug, version, position_count,
+        job_count, role_count, byte_count, slug_id_mismatch.
     """
     return await tool_upload_org_impl(
-        session_token=session_token,
-        org_slug=org_slug,
-        content=content,
-    )
-
-
-@mcp.tool()
-async def upload_job(
-    session_token: str,
-    org_slug: str,
-    content: dict,
-) -> dict:
-    """Ingest a roledef:Job artifact under an existing org's URL space.
-
-    Phase E E2. The job sits beneath an org_artifact and is referenced
-    by an orgdef position's `job_definition.url`. When a fresh agent
-    boots into a position whose job is uploaded, the boot payload
-    embeds the full job content; otherwise the position's
-    `job_definition` carries the unresolved URL plus a diagnostic.
-
-    Args:
-        session_token: From a successful `auth_with_pin`.
-        org_slug: The owning org's URL slug. The org_artifact must
-            already exist (upload the orgdef before its jobs).
-        content: The roledef:Job artifact as parsed JSON. MUST contain
-            catdef, roledef, type ('roledef:Job'), id, name, version.
-
-    Returns:
-        dict with: artifact_id (str), org_slug (str), job_id (str),
-        version (str), byte_count (int).
-    """
-    return await tool_upload_job_impl(
         session_token=session_token,
         org_slug=org_slug,
         content=content,

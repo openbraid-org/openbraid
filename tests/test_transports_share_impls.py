@@ -23,7 +23,6 @@ EXPECTED_TOOLS = {
     "read_memo": "tool_read_memo_impl",
     "mark_read": "tool_mark_read_impl",
     "upload_org": "tool_upload_org_impl",
-    "upload_job": "tool_upload_job_impl",
 }
 
 
