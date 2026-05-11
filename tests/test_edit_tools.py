@@ -48,7 +48,7 @@ VALID_OPENCATALOG = {
 }
 
 
-def _build_supabase(content=None, existing_version="2.0.0", master_url=None):
+def _build_supabase(content=None, existing_version="2.0.0", master_url=None, audit_id="audit-uuid-stub"):
     """Build a mock Supabase client wired for the edit flow's chained
     calls. Re-used across the update_position / update_org_metadata /
     bump_version tests."""
@@ -83,7 +83,7 @@ def _build_supabase(content=None, existing_version="2.0.0", master_url=None):
     update_chain = table.update.return_value.eq.return_value
     update_chain.execute.return_value.data = [{"id": "art-uuid"}]
     insert_chain = table.insert.return_value
-    insert_chain.execute.return_value.data = [{"id": "audit-uuid"}]
+    insert_chain.execute.return_value.data = [{"id": audit_id}]
 
     return client
 
@@ -153,6 +153,72 @@ async def test_update_position_merges_patch_and_bumps_version(_mock_role):
     assert "implementer" in audit_row["patch_summary"]
     assert audit_row["version_before"] == "2.0.0"
     assert audit_row["version_after"] == "2.0.1"
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_position_receipt_includes_edit_log_id_and_applied_fields(_mock_role):
+    """Strategist note 4: receipt must surface edit_log_id +
+    applied_fields so AI clients can verify a patch landed and which
+    keys it touched."""
+    from server.tool_impls import tool_update_position_impl
+
+    fake = _build_supabase(audit_id="audit-row-42")
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_update_position_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            position_id="implementer",
+            patch={"summary": "new", "responsibilities": ["r1", "r2"]},
+        )
+
+    assert receipt["edit_log_id"] == "audit-row-42"
+    assert sorted(receipt["applied_fields"]) == sorted(["summary", "responsibilities"])
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_position_null_value_deletes_field_per_rfc_7396(_mock_role):
+    """Strategist note 3: JSON Merge Patch semantics — a null value in
+    the patch REMOVES the key from the target rather than setting it
+    to None. applied_fields uses `-key` prefix to mark deletions."""
+    from server.tool_impls import tool_update_position_impl
+
+    # Seed the artifact's implementer with a `summary` field we'll
+    # then delete.
+    seeded = dict(VALID_OPENCATALOG)
+    seeded["items"] = list(VALID_OPENCATALOG["items"])
+    seeded["items"][0] = {**seeded["items"][0], "summary": "to be removed"}
+    fake = _build_supabase(content=seeded)
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_update_position_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            position_id="implementer",
+            patch={"summary": None},
+        )
+
+    assert "-summary" in receipt["applied_fields"]
+    new_content = fake.table.return_value.update.call_args[0][0]["content"]
+    impl = next(it for it in new_content["items"] if it["id"] == "implementer")
+    assert "summary" not in impl, "summary key should be removed entirely, not nulled"
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_position_null_on_absent_key_is_noop(_mock_role):
+    """RFC 7396: deleting an absent key is silently a no-op (no
+    error). applied_fields just omits the entry."""
+    from server.tool_impls import tool_update_position_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_update_position_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            position_id="implementer",
+            patch={"never_existed": None, "summary": "new"},
+        )
+
+    assert "-never_existed" not in receipt["applied_fields"]
+    assert "summary" in receipt["applied_fields"]
 
 
 @patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")

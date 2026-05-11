@@ -274,6 +274,8 @@ class EditReceipt(BaseModel):
     org_slug: str
     version_before: str
     version_after: str
+    edit_log_id: str | None = None
+    applied_fields: list[str] = []
 
 
 # --- Routes -----------------------------------------------------------------
