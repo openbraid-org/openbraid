@@ -34,10 +34,12 @@ from starlette.routing import Route
 
 from server.db import (
     account_by_handle,
+    active_session_count_for_role,
     artifact_by_account_and_slug,
     artifacts_for_account,
     find_job_in_artifact,
     find_position_in_artifact,
+    incumbent_by_artifact_position,
     org_by_name,
     orgs_for_account,
     position_by_name,
@@ -130,16 +132,21 @@ async def _build_artifact_boot_payload(
 ) -> dict:
     """Build the C4 boot payload from an artifact-backed position.
 
-    Phase E1-cutover + E3: position metadata and org context come from
-    the .opencatalog content; `role_definition` is fetched and embedded
-    inline by `_resolve_role_definition_payload` (E3); `job_definition`
-    is embedded from the sibling Job item in the same items[] array.
-    `incumbent` and `inbox_summary` remain stub-shaped — full
-    population lands when the `incumbents` table maps artifact
-    positions to openbraid roles (future PR).
+    Phase E1-cutover + E3 + F0: position metadata and org context come
+    from the .opencatalog content; `role_definition` is fetched and
+    embedded inline by the E3 resolver; `job_definition` is embedded
+    from the sibling Job item in the same items[] array; `incumbent`
+    reflects the live binding state in the `incumbents` table (F0):
+    vacant + claimable_via for unclaimed seats, ai-session-arc +
+    active_session_count for bound seats. `inbox_summary` aggregates
+    counts from the bound role's mailbox when bound, or zeros when
+    vacant.
     """
     content = artifact["content"]
     role_definition = await _resolve_role_definition_payload(position_data)
+    incumbent_block, inbox_summary = _build_incumbent_and_inbox_blocks(
+        artifact["id"], position_data["id"], canonical_url
+    )
     return {
         "position": {
             "id": position_data.get("id"),
@@ -166,29 +173,81 @@ async def _build_artifact_boot_payload(
         "job_definition": _resolve_job_definition_payload(
             content, position_data
         ),
-        "incumbent": {
-            "active_sessions": 0,
-            "claimable": False,
-            "diagnostic": (
-                "Artifact-backed positions in Phase E1-cutover are read-only. "
-                "The incumbents table (mapping artifact positions to openbraid "
-                "auth identities) lands in a future PR; until then, claim_role "
-                "against this URL will fail. The position metadata, org context, "
-                "and role/job references are fully exposed for fresh-agent "
-                "instantiation contexts that read but don't yet claim."
-            ),
-        },
-        "inbox_summary": {
-            "inbox_unread": 0,
-            "notes_count": 0,
-            "diagnostic": (
-                "Per-position memo storage for artifact-backed positions "
-                "lands when the incumbents table maps to memo stores."
-            ),
-        },
-        "claim_instruction": None,
+        "incumbent": incumbent_block,
+        "inbox_summary": inbox_summary,
+        "claim_instruction": (
+            f"To claim this seat: call openbraid's `claim_role` MCP tool with "
+            f"position_url=\"{canonical_url}\". You will receive a "
+            f"challenge_id; the human gatekeeper delivers a 9-digit PIN "
+            f"out-of-band (via the openbraid panel); call `auth_with_pin` "
+            f"with the challenge_id and PIN to complete the claim. "
+            f"Subsequent tool calls use the returned session_token."
+        ),
         "_backed_by": "artifact",
     }
+
+
+def _build_incumbent_and_inbox_blocks(
+    artifact_id: str, position_id: str, canonical_url: str
+) -> tuple[dict, dict]:
+    """Compute the operational incumbent + inbox_summary blocks for an
+    artifact-backed position.
+
+    Phase F F0. Reads from the `incumbents` table to discover whether
+    a binding exists; if so, counts active sessions + memo state on
+    the bound role; if not, emits a vacancy + claim instructions.
+    """
+    incumbent_row = incumbent_by_artifact_position(artifact_id, position_id)
+    if not incumbent_row:
+        return (
+            {
+                "type": "vacant",
+                "claimable": True,
+                "claimable_via": (
+                    f"Call openbraid `claim_role` with "
+                    f"position_url=\"{canonical_url}\" to begin the PIN ceremony."
+                ),
+            },
+            {
+                "inbox_unread": 0,
+                "notes_count": 0,
+                "diagnostic": "Position vacant; no mailbox storage yet.",
+            },
+        )
+
+    role_id = incumbent_row["claimed_role_id"]
+    active_sessions = active_session_count_for_role(role_id)
+    sb = supabase()
+    inbox_unread = (
+        sb.table("memos")
+        .select("id")
+        .eq("role_id", role_id)
+        .eq("kind", "inbox")
+        .eq("status", "inbox")
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    notes_count = (
+        sb.table("memos")
+        .select("id")
+        .eq("role_id", role_id)
+        .eq("kind", "note")
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    return (
+        {
+            "type": "ai-session-arc",
+            "claimable": True,  # multi-occupant per F0 design
+            "role_id": role_id,
+            "claimed_at": incumbent_row["created_at"],
+            "active_session_count": active_sessions,
+        },
+        {
+            "inbox_unread": len(inbox_unread.data or []),
+            "notes_count": len(notes_count.data or []),
+        },
+    )
 
 
 def _position_tree_dfs_order(content: dict) -> list[tuple[dict, int, str | None]]:
