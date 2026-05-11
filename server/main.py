@@ -29,15 +29,18 @@ from starlette.routing import Host, Mount
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from server.tool_impls import (
+    tool_add_position_impl,
     tool_auth_with_pin_impl,
     tool_bump_version_impl,
     tool_claim_role_impl,
+    tool_delete_position_impl,
     tool_list_inbox_impl,
     tool_mark_read_impl,
     tool_read_memo_impl,
     tool_send_memo_impl,
     tool_update_org_metadata_impl,
     tool_update_position_impl,
+    tool_update_relationship_impl,
     tool_upload_org_impl,
 )
 
@@ -368,6 +371,97 @@ async def bump_version(
         session_token=session_token,
         org_slug=org_slug,
         kind=kind,
+        expected_version=expected_version,
+    )
+
+
+@mcp.tool()
+async def add_position(
+    session_token: str,
+    org_slug: str,
+    position: dict,
+    expected_version: str | None = None,
+) -> dict:
+    """Add a new orgdef:Position item to an opencatalog.
+
+    `position` is the full new item dict (id, name, and any optional
+    position-level fields: role_definition, job_definition,
+    description, responsibilities, deliverables, etc.). The `type`
+    field is set to "orgdef:Position" if absent.
+
+    Auto-bumps patch-level version. Rejects if the id is already
+    taken. Same SCHEMA v1.0.0 consistency rules upload_org enforces
+    (e.g. position.job_definition.id must resolve to a sibling Job
+    item unless an external URL is declared).
+
+    Returns receipt with artifact_id, org_slug, version_before,
+    version_after, edit_log_id, applied_fields=["+position:<id>"].
+    """
+    return await tool_add_position_impl(
+        session_token=session_token,
+        org_slug=org_slug,
+        position=position,
+        expected_version=expected_version,
+    )
+
+
+@mcp.tool()
+async def delete_position(
+    session_token: str,
+    org_slug: str,
+    position_id: str,
+    expected_version: str | None = None,
+) -> dict:
+    """Remove an orgdef:Position item from an opencatalog.
+
+    Per orgdef-strategist's block-when-claimed rule: if the position
+    has a live incumbents binding with active auth_sessions, the
+    delete is REJECTED. Revoke sessions (or end the binding) first.
+
+    Pure-data delete (no claimed sessions) succeeds immediately. Any
+    relationships[] entries whose endpoint is the deleted position
+    are also dropped to keep the artifact's internal consistency.
+
+    Returns receipt with applied_fields=["-position:<id>", maybe
+    "-edges:<n>"] depending on relationships fallout.
+    """
+    return await tool_delete_position_impl(
+        session_token=session_token,
+        org_slug=org_slug,
+        position_id=position_id,
+        expected_version=expected_version,
+    )
+
+
+@mcp.tool()
+async def update_relationship(
+    session_token: str,
+    org_slug: str,
+    rtype: str,
+    from_id: str,
+    to_id: str,
+    op: str = "add",
+    expected_version: str | None = None,
+) -> dict:
+    """Add or remove a relationships[] entry.
+
+    Args:
+        rtype: one of reports_to, directs, coordinates_with,
+            validates_for, peer_of, implements_for, derives_from.
+        from_id, to_id: position ids in the same opencatalog, the
+            org's own id, or 'external:...' prefixes.
+        op: "add" (default) or "remove".
+
+    Both ops are idempotent. Adding an existing edge or removing an
+    absent edge is a successful no-op (no version bump, no audit row).
+    """
+    return await tool_update_relationship_impl(
+        session_token=session_token,
+        org_slug=org_slug,
+        rtype=rtype,
+        from_id=from_id,
+        to_id=to_id,
+        op=op,
         expected_version=expected_version,
     )
 

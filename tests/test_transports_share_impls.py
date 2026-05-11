@@ -26,6 +26,9 @@ EXPECTED_TOOLS = {
     "update_position": "tool_update_position_impl",
     "update_org_metadata": "tool_update_org_metadata_impl",
     "bump_version": "tool_bump_version_impl",
+    "add_position": "tool_add_position_impl",
+    "delete_position": "tool_delete_position_impl",
+    "update_relationship": "tool_update_relationship_impl",
 }
 
 
