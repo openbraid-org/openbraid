@@ -230,6 +230,63 @@ def position_by_name(org_id: str, position_name: str) -> dict | None:
     return result.data[0] if result.data else None
 
 
+_ARTIFACT_COLUMNS = (
+    "id, account_id, org_slug, content, version, created_at, updated_at"
+)
+
+
+def artifact_by_account_and_slug(account_id: str, org_slug: str) -> dict | None:
+    """Return the live `org_artifacts` row for (account_id, org_slug), or None.
+
+    Phase E E1-cutover: boot URL handlers call this first; if it returns
+    a row, the boot payload derives from the artifact's `content` (the
+    canonical orgdef.openthing JSON). If None, handlers fall back to
+    the legacy `orgs`/`roles` read path.
+    """
+    result = (
+        supabase()
+        .table("org_artifacts")
+        .select(_ARTIFACT_COLUMNS)
+        .eq("account_id", account_id)
+        .eq("org_slug", org_slug)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def artifacts_for_account(account_id: str) -> list[dict]:
+    """Return all live `org_artifacts` rows for an account, ordered by created_at asc."""
+    result = (
+        supabase()
+        .table("org_artifacts")
+        .select(_ARTIFACT_COLUMNS)
+        .eq("account_id", account_id)
+        .is_("deleted_at", "null")
+        .order("created_at", desc=False)
+        .execute()
+    )
+    return result.data or []
+
+
+def find_position_in_artifact(content: dict, position_name: str) -> dict | None:
+    """Find a position in an artifact's content by id or name.
+
+    The orgdef SCHEMA addresses positions by `id`; URL handlers accept
+    either id or name for friendliness (some adopters write
+    URL-shaped ids; others write CamelCase names). First match wins.
+    """
+    positions = content.get("positions") or []
+    if not isinstance(positions, list):
+        return None
+    for p in positions:
+        if not isinstance(p, dict):
+            continue
+        if p.get("id") == position_name or p.get("name") == position_name:
+            return p
+    return None
+
+
 def parse_position_url(url: str) -> tuple[str, str | None, str]:
     """Parse a position URL to (handle, org_name | None, position_name).
 
