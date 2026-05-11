@@ -28,9 +28,16 @@ EXPECTED_ROUTES = {
     "/list_inbox",
     "/read_memo",
     "/mark_read",
+    "/upload_org",
 }
 
-AUTH_REQUIRED = {"/send_memo", "/list_inbox", "/read_memo", "/mark_read"}
+AUTH_REQUIRED = {
+    "/send_memo",
+    "/list_inbox",
+    "/read_memo",
+    "/mark_read",
+    "/upload_org",
+}
 AUTH_NOT_REQUIRED = {"/claim_role", "/auth_with_pin"}
 
 
@@ -43,7 +50,7 @@ def test_openapi_spec_is_published():
     assert spec["info"]["title"] == "openbraid REST"
 
 
-def test_all_six_routes_are_registered():
+def test_all_expected_routes_are_registered():
     r = client.get("/openapi.json")
     spec = r.json()
     paths = set(spec["paths"].keys())

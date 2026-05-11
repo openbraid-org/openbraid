@@ -40,6 +40,10 @@ EXPECTED_TOOLS: dict[str, dict[str, set[str]]] = {
         "required": {"session_token", "memo_id"},
         "optional": set(),
     },
+    "upload_org": {
+        "required": {"session_token", "org_slug", "content"},
+        "optional": set(),
+    },
 }
 
 
@@ -48,7 +52,7 @@ async def _list_tools_by_name(server) -> dict:
     return {t.name: t for t in tools}
 
 
-async def test_all_six_tools_are_registered(server):
+async def test_all_expected_tools_are_registered(server):
     tools = await _list_tools_by_name(server)
     assert set(tools.keys()) == set(EXPECTED_TOOLS.keys()), (
         f"Tool registration mismatch. "

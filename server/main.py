@@ -35,6 +35,7 @@ from server.tool_impls import (
     tool_mark_read_impl,
     tool_read_memo_impl,
     tool_send_memo_impl,
+    tool_upload_org_impl,
 )
 
 mcp = FastMCP(
@@ -232,6 +233,47 @@ async def mark_read(session_token: str, memo_id: str) -> dict:
         memo_id=memo_id,
     )
 
+
+@mcp.tool()
+async def upload_org(
+    session_token: str,
+    org_slug: str,
+    content: dict,
+) -> dict:
+    """Ingest an orgdef.openthing artifact as canonical content for an
+    `<account>/<org_slug>` URL.
+
+    Phase E E0-prep. Per the OAGP canonical-store principle: openbraid
+    is the HOSTING layer; orgdef.openthing is the CONTENT layer. This
+    tool stores the artifact byte-equivalent so full-fidelity export
+    round-trips later (Phase E5). Validation: catdef envelope check
+    (catdef, orgdef, type fields) + orgdef MUST fields (id, name,
+    version). The artifact is stored as JSONB; the type MUST be
+    `"orgdef:Organization"` (libraries and job artifacts are separate
+    surfaces).
+
+    Authorization: any session_token from a role belonging to the
+    uploading account grants account-level ingest authority.
+
+    Args:
+        session_token: From a successful `auth_with_pin`.
+        org_slug: URL slug for the org (e.g. "thingalog"). Used in
+            `mcp.openbraid.app/<account>/<org_slug>/<position>`.
+            SHOULD match `content["id"]`; if not, the response flags
+            `slug_id_mismatch: true`.
+        content: The orgdef.openthing artifact as a parsed JSON
+            object. Round-trip byte-equivalent storage required for
+            Phase E5 full-fidelity export.
+
+    Returns:
+        dict with: artifact_id (str), org_slug (str), version (str),
+        position_count (int), byte_count (int), slug_id_mismatch (bool).
+    """
+    return await tool_upload_org_impl(
+        session_token=session_token,
+        org_slug=org_slug,
+        content=content,
+    )
 
 
 # --- HTTP host: per-domain routing -----------------------------------------
