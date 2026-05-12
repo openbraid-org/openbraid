@@ -42,6 +42,7 @@ from server.tool_impls import (
     tool_list_inbox_impl,
     tool_mark_read_impl,
     tool_read_memo_impl,
+    tool_read_org_impl,
     tool_send_memo_impl,
     tool_update_org_metadata_impl,
     tool_update_position_impl,
@@ -627,21 +628,22 @@ async def rest_update_relationship(
     ),
 )
 async def rest_export_org(account: str, org_slug: str) -> Response:
-    acct = account_by_handle(account)
-    if not acct:
-        raise HTTPException(status_code=404, detail="account not found")
-    artifact = artifact_by_account_and_slug(acct["id"], org_slug)
-    if not artifact:
-        raise HTTPException(status_code=404, detail="org artifact not found")
+    # Route through the shared tool_read_org_impl per Phase D
+    # no-drift discipline; MCP read_org + REST export_org call the
+    # same impl with different wire shapes.
+    try:
+        result = await tool_read_org_impl(
+            account_handle=account, org_slug=org_slug
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
-    content = artifact["content"]
-    body = canonicalize(content)
-    digest = sha256_hex(content)
+    body = canonicalize(result["content"])
     return Response(
         content=body,
         media_type="application/json",
         headers={
-            "X-Content-SHA256": digest,
+            "X-Content-SHA256": result["content_sha256"],
             "Cache-Control": "public, max-age=60",
         },
     )

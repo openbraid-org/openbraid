@@ -92,8 +92,12 @@ def test_export_endpoint_returns_canonical_bytes_and_hash_header():
         "content": SAMPLE_OPENCATALOG,
         "version": "2.0.0",
     }
-    with patch.object(rest_api, "account_by_handle", return_value=fake_account), \
-         patch.object(rest_api, "artifact_by_account_and_slug", return_value=fake_artifact):
+    # Patch through the shared impl (tool_read_org_impl in tool_impls)
+    # since the REST handler now routes through there per the Phase D
+    # no-drift discipline.
+    from server import tool_impls
+    with patch.object(tool_impls, "account_by_handle", return_value=fake_account), \
+         patch.object(tool_impls, "artifact_by_account_and_slug", return_value=fake_artifact):
         r = client.get("/export/scott/thingalog")
 
     assert r.status_code == 200
@@ -107,27 +111,73 @@ def test_export_endpoint_returns_canonical_bytes_and_hash_header():
 
 
 def test_export_endpoint_returns_404_on_unknown_account():
-    with patch.object(rest_api, "account_by_handle", return_value=None):
+    from server import tool_impls
+    with patch.object(tool_impls, "account_by_handle", return_value=None):
         r = client.get("/export/ghost/thingalog")
 
     assert r.status_code == 404
-    assert "account not found" in r.json()["detail"]
+    assert "No openbraid account" in r.json()["detail"]
 
 
 def test_export_endpoint_returns_404_on_unknown_slug():
+    from server import tool_impls
     fake_account = {"id": "acct-uuid", "email": "scott@example.com"}
-    with patch.object(rest_api, "account_by_handle", return_value=fake_account), \
-         patch.object(rest_api, "artifact_by_account_and_slug", return_value=None):
+    with patch.object(tool_impls, "account_by_handle", return_value=fake_account), \
+         patch.object(tool_impls, "artifact_by_account_and_slug", return_value=None):
         r = client.get("/export/scott/ghost-org")
 
     assert r.status_code == 404
-    assert "org artifact not found" in r.json()["detail"]
+    assert "No org artifact" in r.json()["detail"]
+
+
+async def test_read_org_returns_full_content_and_hash():
+    """The MCP-side read_org tool returns the structured shape AI
+    clients need: artifact_id + org_slug + version + content +
+    content_sha256. Public read — no session_token needed."""
+    from server import tool_impls
+
+    fake_account = {"id": "acct-uuid", "email": "scott@example.com"}
+    fake_artifact = {
+        "id": "art-uuid",
+        "account_id": "acct-uuid",
+        "org_slug": "thingalog",
+        "content": SAMPLE_OPENCATALOG,
+        "version": "2.0.0",
+    }
+    with patch.object(tool_impls, "account_by_handle", return_value=fake_account), \
+         patch.object(tool_impls, "artifact_by_account_and_slug", return_value=fake_artifact):
+        result = await tool_impls.tool_read_org_impl("scott", "thingalog")
+
+    assert result["artifact_id"] == "art-uuid"
+    assert result["org_slug"] == "thingalog"
+    assert result["version"] == "2.0.0"
+    assert result["content"] == SAMPLE_OPENCATALOG
+    assert result["content_sha256"] == sha256_hex(SAMPLE_OPENCATALOG)
+
+
+async def test_read_org_raises_on_unknown_handle():
+    from server import tool_impls
+
+    with patch.object(tool_impls, "account_by_handle", return_value=None):
+        with pytest.raises(ValueError, match="No openbraid account"):
+            await tool_impls.tool_read_org_impl("ghost", "thingalog")
+
+
+async def test_read_org_raises_on_unknown_slug():
+    from server import tool_impls
+
+    fake_account = {"id": "acct-uuid", "email": "scott@example.com"}
+    with patch.object(tool_impls, "account_by_handle", return_value=fake_account), \
+         patch.object(tool_impls, "artifact_by_account_and_slug", return_value=None):
+        with pytest.raises(ValueError, match="No org artifact"):
+            await tool_impls.tool_read_org_impl("scott", "ghost-org")
 
 
 def test_export_endpoint_byte_equivalence_through_storage_simulation():
     """Full round-trip simulation: take a content dict, simulate Postgres
     JSONB storage (json.dumps + json.loads), serve via export, verify
     that exported bytes canonical-hash to the original."""
+    from server import tool_impls
     fake_account = {"id": "acct-uuid", "email": "scott@example.com"}
     # Simulate Postgres-side: dict → JSON string → dict (loses key
     # order, normalizes whitespace, preserves types).
@@ -139,8 +189,12 @@ def test_export_endpoint_byte_equivalence_through_storage_simulation():
         "content": stored,
         "version": "2.0.0",
     }
-    with patch.object(rest_api, "account_by_handle", return_value=fake_account), \
-         patch.object(rest_api, "artifact_by_account_and_slug", return_value=fake_artifact):
+    # Patch through the shared impl (tool_read_org_impl in tool_impls)
+    # since the REST handler now routes through there per the Phase D
+    # no-drift discipline.
+    from server import tool_impls
+    with patch.object(tool_impls, "account_by_handle", return_value=fake_account), \
+         patch.object(tool_impls, "artifact_by_account_and_slug", return_value=fake_artifact):
         r = client.get("/export/scott/thingalog")
 
     upload_hash = sha256_hex(SAMPLE_OPENCATALOG)

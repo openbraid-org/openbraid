@@ -16,8 +16,10 @@ No behavior change in the extraction step itself.
 
 from __future__ import annotations
 
+from server.canonical_json import sha256_hex
 from server.db import (
     account_by_handle,
+    artifact_by_account_and_slug,
     ensure_org_create_role,
     generate_pin,
     generate_session_token,
@@ -529,6 +531,53 @@ def upload_org_for_account(
         "role_count": role_count,
         "byte_count": byte_count,
         "slug_id_mismatch": slug_id_mismatch,
+    }
+
+
+async def tool_read_org_impl(account_handle: str, org_slug: str) -> dict:
+    """Return the stored opencatalog content for `<account>/<org_slug>`.
+
+    Phase F follow-up — closes the read-side gap in the MCP edit
+    surface. AI clients calling `update_position` / `update_org_metadata`
+    / `update_relationship` etc. need visibility into current state to
+    compose useful patches; before this tool, they had to fetch via
+    the public REST `/api/export/<account>/<org_slug>` endpoint
+    out-of-band. Now both transports route through this shared impl.
+
+    Auth posture mirrors `export_org`: public read. Boot URLs are
+    public per OAGP v0; this is the same content with a structured
+    return shape suited to MCP consumers.
+
+    Returns:
+        dict with: artifact_id (str), org_slug (str), version (str),
+        content (dict — the full opencatalog), content_sha256 (str —
+        lowercase-hex SHA-256 of canonical JSON bytes; matches what
+        the export endpoint serves in `X-Content-SHA256`).
+
+    Raises:
+        ValueError on unknown handle or unknown slug (the MCP / REST
+        wrappers translate to 404).
+    """
+    if not isinstance(account_handle, str) or not account_handle:
+        raise ValueError("account_handle must be a non-empty string")
+    if not isinstance(org_slug, str) or not org_slug:
+        raise ValueError("org_slug must be a non-empty string")
+
+    account = account_by_handle(account_handle)
+    if not account:
+        raise ValueError(f"No openbraid account found for handle {account_handle!r}")
+    artifact = artifact_by_account_and_slug(account["id"], org_slug)
+    if not artifact:
+        raise ValueError(
+            f"No org artifact found at {account_handle}/{org_slug}"
+        )
+    content = artifact["content"]
+    return {
+        "artifact_id": artifact["id"],
+        "org_slug": artifact["org_slug"],
+        "version": artifact.get("version") or content.get("version"),
+        "content": content,
+        "content_sha256": sha256_hex(content),
     }
 
 

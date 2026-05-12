@@ -30,6 +30,7 @@ EXPECTED_TOOLS = {
     "delete_position": "tool_delete_position_impl",
     "update_relationship": "tool_update_relationship_impl",
     "claim_org_create": "tool_claim_org_create_impl",
+    "read_org": "tool_read_org_impl",
 }
 
 

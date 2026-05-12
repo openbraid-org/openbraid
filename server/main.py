@@ -38,6 +38,7 @@ from server.tool_impls import (
     tool_list_inbox_impl,
     tool_mark_read_impl,
     tool_read_memo_impl,
+    tool_read_org_impl,
     tool_send_memo_impl,
     tool_update_org_metadata_impl,
     tool_update_position_impl,
@@ -313,6 +314,36 @@ async def upload_org(
         session_token=session_token,
         org_slug=org_slug,
         content=content,
+    )
+
+
+@mcp.tool()
+async def read_org(account_handle: str, org_slug: str) -> dict:
+    """Read the current state of an org's opencatalog.
+
+    Call this BEFORE composing patches against an org you don't have
+    full state for. The return shape carries the complete artifact
+    (catdef envelope + mission/vision/scope/governance + items[] +
+    relationships[] + x.* extensions) so you can compose accurate
+    patches via `update_position`, `update_org_metadata`,
+    `update_relationship`, etc.
+
+    Public read — no session_token required. Returns the same canonical
+    content that the REST `/api/export/<account>/<org_slug>` endpoint
+    serves, with the same SHA-256 hash exposed for integrity checks.
+
+    Args:
+        account_handle: The org owner's openbraid handle.
+        org_slug: The org's URL slug.
+
+    Returns:
+        dict with: artifact_id (str), org_slug (str), version (str),
+        content (dict — the full opencatalog), content_sha256 (str —
+        lowercase-hex SHA-256 of the canonical bytes).
+    """
+    return await tool_read_org_impl(
+        account_handle=account_handle,
+        org_slug=org_slug,
     )
 
 
