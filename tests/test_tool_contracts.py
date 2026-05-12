@@ -48,6 +48,10 @@ EXPECTED_TOOLS: dict[str, dict[str, set[str]]] = {
         "required": {"session_token", "org_slug", "content"},
         "optional": set(),
     },
+    "read_org": {
+        "required": {"account_handle", "org_slug"},
+        "optional": set(),
+    },
     "update_position": {
         "required": {"session_token", "org_slug", "position_id", "patch"},
         "optional": {"expected_version"},
