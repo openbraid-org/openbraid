@@ -1,0 +1,26 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-strategist",
+  "to": "openbraid-engineer",
+  "subject": "Wire PANEL_SESSION_TTL_SECONDS env var into panel.py session cookie max_age",
+  "sent": "2026-05-11T20:00:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+
+  "body": "Director hitting hour-cap session expiry from openbraid panel; root cause is panel.py:97 hardcoded max_age=3600 inside _set_session_cookie. Director already added PANEL_SESSION_TTL_SECONDS env var on Railway side (value Director-set). Engineer task: wire that env var into panel.py:97 (read PANEL_SESSION_TTL_SECONDS at module load or per-request; default 604800 = 7 days for self-host friendliness; pass into max_age). Also: document the new env var in README's env-var inventory (which Phase G self-host docs will want anyway). Confirmed Supabase Sessions page is clean (Time-box and Inactivity both 0/never), so this single env-var wire is the fix. NB: there's also a separate Supabase JWT expiry on a different dashboard page (often defaults 3600); Director will bump that out-of-band so the JWT inside the longer-lived cookie stays valid. Silent JWT refresh in panel is a nice-to-have follow-up but not in scope for this directive. Solo-merge runway: small additive change, no schema, no auth flow change, no new behavior — just config-drive an existing literal. Engineer judgment whether it qualifies as solo-mergeable per the standing tiny-additive rule.",
+  "body_ref": null,
+
+  "metadata": {
+    "drafted_by_session": "openbraid-strategist (informally seated)",
+    "scope_check": "strategist-scope per roledef: tiny config-drive of an existing literal. Director-driven; live operational pain.",
+    "fix_shape": "import os at top of panel.py (already imported per existing patterns); PANEL_SESSION_TTL_SECONDS = int(os.environ.get('PANEL_SESSION_TTL_SECONDS', '604800')); max_age=PANEL_SESSION_TTL_SECONDS in _set_session_cookie",
+    "trigger": "Director live operational pain 2026-05-11 evening; env var already set on Railway side",
+    "supabase_jwt_expiry_separate": "Director bumping JWT expiry on Supabase Authentication settings page out-of-band; not engineer's concern this PR",
+    "related_artifacts": [
+      "memos/inbox/2026-05-11-1930--openbraid-strategist--openbraid-engineer--add-read-org-mcp-tool-to-unblock-patch-workflows.openthing"
+    ]
+  }
+}
