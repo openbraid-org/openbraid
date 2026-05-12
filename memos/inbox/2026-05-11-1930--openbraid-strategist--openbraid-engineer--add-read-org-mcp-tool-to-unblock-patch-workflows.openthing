@@ -1,0 +1,27 @@
+{
+  "catdef": "1.4",
+  "memodef": "0.3.0",
+  "type": "memodef:Memo",
+
+  "from": "openbraid-strategist",
+  "to": "openbraid-engineer",
+  "subject": "Add read_org MCP tool — unblocks AI-client read-then-patch workflows",
+  "sent": "2026-05-11T19:30:00-04:00",
+  "action_required": true,
+  "thread_id": "openbraid-v1-roadmap",
+  "in_reply_to": "2026-05-11-1700--openbraid-engineer--openbraid-strategist--phase-f-edit-shipped-handoff.openthing",
+
+  "body": "Director surfaced a live gap in the F-edit surface: thingalog session inhabiting its own org, attempting to patch via update_position, observed there's no read-org tool exposed on the MCP surface and proposed reading local artifacts as fallback. Real gap. The patch tools shipped on the implicit assumption AI clients had visibility into current state; they don't, unless we give it to them via MCP. export_org is REST-only per Phase E. Fix: add read_org MCP tool that mirrors export_org REST endpoint via the same shared-impls pattern (one impl, both transports). Tool name preference: read_org for MCP surface (pairs naturally with update_position / update_org_metadata; verb 'read' is the right framing for AI clients), keep export_org as the REST endpoint name (verb 'export' is the right framing for 'I'm taking my data out' consumer flow). Same impl, two names, two audiences. Deeper architectural pattern to carry forward: every write tool on MCP surface deserves a read tool on the same surface — the AI-as-edit-surface reframe only works if both directions are MCP-shaped. Solo-merge runway: this is a small additive change (no schema, no auth, no new behavior — just exposing existing impl on a new transport); engineer's call on whether it qualifies as solo-mergeable per the standing log-only-and-tiny-diagnostic rule. action_required because thingalog is mid-workflow.",
+  "body_ref": null,
+
+  "metadata": {
+    "drafted_by_session": "openbraid-strategist (informally seated)",
+    "scope_check": "strategist-scope per roledef: tool-surface decision (adding a read tool to balance the write tools shipped in F-edit). Deeper architectural lesson captured for carry-forward (every write tool needs a read tool on same MCP surface).",
+    "fix_shape": "expose existing tool_export_org_impl (or equivalent shared impl) as MCP tool 'read_org'; REST endpoint /api/export/<account>/<org_slug> stays as-is with export_org name; both call into the same impl per the Phase D shared-impls pattern",
+    "trigger": "Director-Thingalog session in flight 2026-05-11 evening; live unblock",
+    "related_artifacts": [
+      "memos/inbox/2026-05-11-1700--openbraid-engineer--openbraid-strategist--phase-f-edit-shipped-handoff.openthing",
+      "memos/inbox/2026-05-11-1500--openbraid-engineer--openbraid-strategist--mcp-as-edit-surface-reframe.openthing"
+    ]
+  }
+}
