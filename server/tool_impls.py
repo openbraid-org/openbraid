@@ -1388,3 +1388,228 @@ async def tool_update_relationship_impl(
         edited_by_role_id=role_id,
         applied_fields=applied,
     )
+
+
+# --- Job CRUD (wave 3) -----------------------------------------------------
+#
+# Symmetric to Position CRUD (add_position / update_position /
+# delete_position). roledef:Job items live in items[] alongside
+# Positions; the only structural difference is the item.type tag and
+# the set of allowed fields (charter / identity / voice /
+# output_contract / guardrails / metadata vs Position's responsibilities
+# / deliverables / etc).
+
+
+async def tool_add_job_impl(
+    session_token: str,
+    org_slug: str,
+    job: dict,
+    expected_version: str | None = None,
+) -> dict:
+    """Add a new roledef:Job item to an opencatalog.
+
+    `job` is the full item dict (id, name, version, charter, identity,
+    voice, output_contract, guardrails, metadata, etc.). The item's
+    `type` field is set to `roledef:Job` if absent; an explicit
+    non-Job type is rejected.
+
+    Validations beyond catalog-level revalidation:
+      - job.id must be non-empty and not already taken by another Job
+        item (Positions and Jobs share the items[] array but their
+        ids are tracked separately — a Job with id "implementer" and
+        a Position with id "implementer" can coexist; the SCHEMA
+        v1.0.0 internal-consistency rule resolves Position.job_definition.id
+        against roledef:Job items only)
+    """
+    if not isinstance(job, dict):
+        raise ValueError("job must be a JSON object")
+    if not job.get("type"):
+        job = {**job, "type": "roledef:Job"}
+    if job.get("type") != "roledef:Job":
+        raise ValueError(
+            f"job.type must be 'roledef:Job'; got {job.get('type')!r}"
+        )
+    new_id = job.get("id")
+    if not isinstance(new_id, str) or not new_id:
+        raise ValueError("job.id must be a non-empty string")
+
+    role_id, account_id = _resolve_account_for_session(session_token)
+    artifact = _load_artifact_for_edit(account_id, org_slug, expected_version)
+
+    content = artifact["content"]
+    items = content.get("items") or []
+    for it in items:
+        if isinstance(it, dict) and it.get("type") == "roledef:Job" and it.get("id") == new_id:
+            raise ValueError(
+                f"Job id {new_id!r} already exists in org {org_slug!r}"
+            )
+
+    new_content = dict(content)
+    new_content["items"] = list(items) + [job]
+    new_content["version"] = _bump_semver(
+        content.get("version", "0.0.0"), "patch"
+    )
+
+    return _save_artifact_after_edit(
+        artifact,
+        new_content,
+        tool_name="add_job",
+        patch_summary=f"add_job {new_id}",
+        edited_by_role_id=role_id,
+        applied_fields=[f"+job:{new_id}"],
+    )
+
+
+async def tool_update_job_impl(
+    session_token: str,
+    org_slug: str,
+    job_id: str,
+    patch: dict,
+    expected_version: str | None = None,
+) -> dict:
+    """Patch a roledef:Job item's fields inside an opencatalog.
+
+    Symmetric to update_position. Same RFC 7396 JSON Merge Patch
+    semantics: top-level keys in patch replace the same keys in the
+    target Job item; arrays (output_contract, guardrails) are
+    replaced wholesale; null values delete keys.
+
+    Auto-bumps the artifact's patch-level version. Rejects id/type
+    changes. Replicants reject editing.
+    """
+    if not isinstance(patch, dict) or not patch:
+        raise ValueError("patch must be a non-empty JSON object")
+    if "id" in patch and patch["id"] != job_id:
+        raise ValueError(
+            "patch must not change the job's id; "
+            "delete + add a fresh item if you need to rename"
+        )
+    if "type" in patch and patch["type"] != "roledef:Job":
+        raise ValueError(
+            "patch must not change item type"
+        )
+
+    role_id, account_id = _resolve_account_for_session(session_token)
+    artifact = _load_artifact_for_edit(account_id, org_slug, expected_version)
+
+    content = artifact["content"]
+    items = content.get("items") or []
+    target_idx = None
+    for i, it in enumerate(items):
+        if isinstance(it, dict) and it.get("id") == job_id and it.get("type") == "roledef:Job":
+            target_idx = i
+            break
+    if target_idx is None:
+        raise ValueError(
+            f"No roledef:Job item with id {job_id!r} in org {org_slug!r}"
+        )
+
+    new_content = dict(content)
+    new_items = list(items)
+    new_job = dict(items[target_idx])
+    applied_fields = _apply_patch(new_job, patch)
+    new_items[target_idx] = new_job
+    new_content["items"] = new_items
+    new_content["version"] = _bump_semver(content.get("version", "0.0.0"), "patch")
+
+    return _save_artifact_after_edit(
+        artifact,
+        new_content,
+        tool_name="update_job",
+        patch_summary=_summarize_patch(
+            f"update_job {job_id}", patch
+        ),
+        edited_by_role_id=role_id,
+        applied_fields=applied_fields,
+    )
+
+
+async def tool_delete_job_impl(
+    session_token: str,
+    org_slug: str,
+    job_id: str,
+    expected_version: str | None = None,
+) -> dict:
+    """Remove a roledef:Job item from an opencatalog.
+
+    Symmetric to delete_position's relationships-cleanup behavior:
+    any Position whose `job_definition.id` references the deleted Job
+    has that reference stripped (the position's job_definition
+    object is removed entirely) so the artifact's SCHEMA v1.0.0
+    internal-consistency rule (every job_definition.id resolves to a
+    sibling Job) stays whole post-delete.
+
+    The "block-when-claimed" rule that applies to Position deletes
+    doesn't apply here — Jobs aren't directly claimable, they're
+    referenced BY positions, which carry the claim state. Stripping
+    the reference doesn't invalidate any auth_sessions on the
+    referring position; the position just becomes Job-less.
+    """
+    if not isinstance(job_id, str) or not job_id:
+        raise ValueError("job_id must be a non-empty string")
+
+    role_id, account_id = _resolve_account_for_session(session_token)
+    artifact = _load_artifact_for_edit(account_id, org_slug, expected_version)
+
+    content = artifact["content"]
+    items = content.get("items") or []
+
+    found = False
+    for it in items:
+        if isinstance(it, dict) and it.get("type") == "roledef:Job" and it.get("id") == job_id:
+            found = True
+            break
+    if not found:
+        raise ValueError(
+            f"No roledef:Job item with id {job_id!r} in org {org_slug!r}"
+        )
+
+    # Remove the Job item.
+    new_items = []
+    for it in items:
+        if (
+            isinstance(it, dict)
+            and it.get("type") == "roledef:Job"
+            and it.get("id") == job_id
+        ):
+            continue
+        new_items.append(it)
+
+    # Strip position.job_definition references that resolve to the
+    # deleted Job by id (keeping external-URL references intact).
+    refs_stripped = 0
+    for i, it in enumerate(new_items):
+        if not isinstance(it, dict) or it.get("type") != "orgdef:Position":
+            continue
+        jd = it.get("job_definition")
+        if not isinstance(jd, dict):
+            continue
+        if jd.get("id") == job_id:
+            new_position = dict(it)
+            del new_position["job_definition"]
+            new_items[i] = new_position
+            refs_stripped += 1
+
+    new_content = dict(content)
+    new_content["items"] = new_items
+    new_content["version"] = _bump_semver(content.get("version", "0.0.0"), "patch")
+
+    applied = [f"-job:{job_id}"]
+    if refs_stripped:
+        applied.append(f"-position-refs:{refs_stripped}")
+
+    return _save_artifact_after_edit(
+        artifact,
+        new_content,
+        tool_name="delete_job",
+        patch_summary=(
+            f"delete_job {job_id}"
+            + (
+                f" (also cleared {refs_stripped} position job_definition refs)"
+                if refs_stripped
+                else ""
+            )
+        ),
+        edited_by_role_id=role_id,
+        applied_fields=applied,
+    )

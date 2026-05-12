@@ -76,6 +76,18 @@ EXPECTED_TOOLS: dict[str, dict[str, set[str]]] = {
         "required": {"session_token", "org_slug", "rtype", "from_id", "to_id"},
         "optional": {"op", "expected_version"},
     },
+    "add_job": {
+        "required": {"session_token", "org_slug", "job"},
+        "optional": {"expected_version"},
+    },
+    "update_job": {
+        "required": {"session_token", "org_slug", "job_id", "patch"},
+        "optional": {"expected_version"},
+    },
+    "delete_job": {
+        "required": {"session_token", "org_slug", "job_id"},
+        "optional": {"expected_version"},
+    },
 }
 
 

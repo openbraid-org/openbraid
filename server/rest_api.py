@@ -33,17 +33,20 @@ from pydantic import BaseModel, Field
 from server.canonical_json import canonicalize, sha256_hex
 from server.db import account_by_handle, artifact_by_account_and_slug
 from server.tool_impls import (
+    tool_add_job_impl,
     tool_add_position_impl,
     tool_auth_with_pin_impl,
     tool_bump_version_impl,
     tool_claim_org_create_impl,
     tool_claim_role_impl,
+    tool_delete_job_impl,
     tool_delete_position_impl,
     tool_list_inbox_impl,
     tool_mark_read_impl,
     tool_read_memo_impl,
     tool_read_org_impl,
     tool_send_memo_impl,
+    tool_update_job_impl,
     tool_update_org_metadata_impl,
     tool_update_position_impl,
     tool_update_relationship_impl,
@@ -324,6 +327,38 @@ class DeletePositionRequest(BaseModel):
     expected_version: str | None = Field(None)
 
 
+class AddJobRequest(BaseModel):
+    org_slug: str
+    job: dict = Field(
+        ...,
+        description=(
+            "Full new roledef:Job item dict (id, name, version, "
+            "charter, identity, voice, output_contract, guardrails, "
+            "metadata). Type set to 'roledef:Job' if absent."
+        ),
+    )
+    expected_version: str | None = Field(None)
+
+
+class UpdateJobRequest(BaseModel):
+    org_slug: str
+    job_id: str
+    patch: dict = Field(
+        ...,
+        description=(
+            "RFC 7396 JSON Merge Patch of job-level fields. Arrays "
+            "replaced wholesale; null values delete keys."
+        ),
+    )
+    expected_version: str | None = Field(None)
+
+
+class DeleteJobRequest(BaseModel):
+    org_slug: str
+    job_id: str
+    expected_version: str | None = Field(None)
+
+
 class UpdateRelationshipRequest(BaseModel):
     org_slug: str
     rtype: str = Field(
@@ -586,6 +621,67 @@ async def rest_delete_position(
             session_token=creds.credentials,
             org_slug=req.org_slug,
             position_id=req.position_id,
+            expected_version=req.expected_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@api.post(
+    "/add_job",
+    response_model=EditReceipt,
+    summary="Add a new roledef:Job item to an opencatalog",
+)
+async def rest_add_job(
+    req: AddJobRequest,
+    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+) -> dict:
+    try:
+        return await tool_add_job_impl(
+            session_token=creds.credentials,
+            org_slug=req.org_slug,
+            job=req.job,
+            expected_version=req.expected_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@api.post(
+    "/update_job",
+    response_model=EditReceipt,
+    summary="Patch a roledef:Job item's fields",
+)
+async def rest_update_job(
+    req: UpdateJobRequest,
+    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+) -> dict:
+    try:
+        return await tool_update_job_impl(
+            session_token=creds.credentials,
+            org_slug=req.org_slug,
+            job_id=req.job_id,
+            patch=req.patch,
+            expected_version=req.expected_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@api.post(
+    "/delete_job",
+    response_model=EditReceipt,
+    summary="Delete a roledef:Job item; strips dangling position references",
+)
+async def rest_delete_job(
+    req: DeleteJobRequest,
+    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+) -> dict:
+    try:
+        return await tool_delete_job_impl(
+            session_token=creds.credentials,
+            org_slug=req.org_slug,
+            job_id=req.job_id,
             expected_version=req.expected_version,
         )
     except ValueError as e:

@@ -875,6 +875,211 @@ async def test_claim_org_create_issues_pin_against_synthetic_role():
     assert insert_call["claim_what"] == "Create org"
 
 
+# --- Job CRUD (wave 3) -----------------------------------------------------
+
+
+VALID_OPENCATALOG_WITH_JOB = {
+    **VALID_OPENCATALOG,
+    "items": VALID_OPENCATALOG["items"] + [
+        {
+            "type": "roledef:Job",
+            "id": "implementer",
+            "name": "Implementer for Thingalog",
+            "version": "1.0.0",
+            "charter": "old charter",
+            "identity": "old identity",
+        },
+    ],
+}
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_add_job_appends_to_items(_mock_role):
+    from server.tool_impls import tool_add_job_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_add_job_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            job={
+                "id": "fresh-job",
+                "name": "Fresh Job",
+                "version": "1.0.0",
+                "charter": "test charter",
+            },
+        )
+
+    assert "+job:fresh-job" in receipt["applied_fields"]
+    new_content = fake.table.return_value.update.call_args[0][0]["content"]
+    job_items = [it for it in new_content["items"] if it.get("type") == "roledef:Job"]
+    assert any(j["id"] == "fresh-job" for j in job_items)
+    # Type defaulted when absent
+    new_job = next(j for j in job_items if j["id"] == "fresh-job")
+    assert new_job["type"] == "roledef:Job"
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_add_job_rejects_duplicate_id(_mock_role):
+    from server.tool_impls import tool_add_job_impl
+
+    fake = _build_supabase(content=VALID_OPENCATALOG_WITH_JOB)
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="already exists"):
+            await tool_add_job_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                job={"id": "implementer", "name": "Dupe", "version": "1.0.0"},
+            )
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_add_job_rejects_wrong_type(_mock_role):
+    from server.tool_impls import tool_add_job_impl
+
+    fake = _build_supabase()
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="type"):
+            await tool_add_job_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                job={"id": "x", "name": "x", "type": "orgdef:Position"},
+            )
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_job_merges_patch_and_bumps_version(_mock_role):
+    from server.tool_impls import tool_update_job_impl
+
+    fake = _build_supabase(content=VALID_OPENCATALOG_WITH_JOB)
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_update_job_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            job_id="implementer",
+            patch={
+                "charter": "new charter",
+                "voice": "new voice",
+            },
+        )
+
+    assert sorted(receipt["applied_fields"]) == sorted(["charter", "voice"])
+    new_content = fake.table.return_value.update.call_args[0][0]["content"]
+    job = next(
+        it for it in new_content["items"]
+        if it.get("type") == "roledef:Job" and it.get("id") == "implementer"
+    )
+    assert job["charter"] == "new charter"
+    assert job["voice"] == "new voice"
+    assert job["identity"] == "old identity"  # untouched
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_job_rejects_id_change(_mock_role):
+    from server.tool_impls import tool_update_job_impl
+
+    fake = _build_supabase(content=VALID_OPENCATALOG_WITH_JOB)
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="must not change.*id"):
+            await tool_update_job_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                job_id="implementer",
+                patch={"id": "different"},
+            )
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_update_job_404s_on_unknown_id(_mock_role):
+    from server.tool_impls import tool_update_job_impl
+
+    fake = _build_supabase(content=VALID_OPENCATALOG_WITH_JOB)
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="No roledef:Job"):
+            await tool_update_job_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                job_id="ghost",
+                patch={"charter": "x"},
+            )
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_delete_job_strips_dangling_position_references(_mock_role):
+    """When a Job is deleted, any Position whose job_definition.id
+    pointed at it loses the job_definition entirely so the artifact
+    stays internally consistent."""
+    from server.tool_impls import tool_delete_job_impl
+
+    seeded = {
+        **VALID_OPENCATALOG_WITH_JOB,
+        "items": [
+            # Position referencing the doomed job
+            {
+                "type": "orgdef:Position",
+                "id": "implementer",
+                "name": "Implementer",
+                "job_definition": {"id": "implementer", "version": "1.0.0"},
+            },
+            # Position with no job_definition — unaffected
+            {
+                "type": "orgdef:Position",
+                "id": "product-owner",
+                "name": "Product Owner",
+            },
+            # The doomed Job
+            {
+                "type": "roledef:Job",
+                "id": "implementer",
+                "name": "Implementer Job",
+                "version": "1.0.0",
+            },
+        ],
+    }
+    fake = _build_supabase(content=seeded)
+    with patch("server.tool_impls.supabase", return_value=fake):
+        receipt = await tool_delete_job_impl(
+            session_token="tok",
+            org_slug="thingalog",
+            job_id="implementer",
+        )
+
+    assert "-job:implementer" in receipt["applied_fields"]
+    assert "-position-refs:1" in receipt["applied_fields"]
+    new_content = fake.table.return_value.update.call_args[0][0]["content"]
+    # Job gone
+    assert not any(
+        it.get("type") == "roledef:Job" and it.get("id") == "implementer"
+        for it in new_content["items"]
+    )
+    # Referring position's job_definition stripped
+    implementer_pos = next(
+        it for it in new_content["items"]
+        if it.get("type") == "orgdef:Position" and it.get("id") == "implementer"
+    )
+    assert "job_definition" not in implementer_pos
+    # Untouched position still untouched
+    po = next(
+        it for it in new_content["items"]
+        if it.get("type") == "orgdef:Position" and it.get("id") == "product-owner"
+    )
+    assert po.get("name") == "Product Owner"
+
+
+@patch("server.tool_impls.get_role_id_from_token", return_value="role-uuid")
+async def test_delete_job_404s_on_unknown_id(_mock_role):
+    from server.tool_impls import tool_delete_job_impl
+
+    fake = _build_supabase(content=VALID_OPENCATALOG_WITH_JOB)
+    with patch("server.tool_impls.supabase", return_value=fake):
+        with pytest.raises(ValueError, match="No roledef:Job"):
+            await tool_delete_job_impl(
+                session_token="tok",
+                org_slug="thingalog",
+                job_id="ghost",
+            )
+
+
 async def test_claim_org_create_rejects_empty_handle():
     from server.tool_impls import tool_claim_org_create_impl
 

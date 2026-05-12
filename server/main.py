@@ -29,17 +29,20 @@ from starlette.routing import Host, Mount
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from server.tool_impls import (
+    tool_add_job_impl,
     tool_add_position_impl,
     tool_auth_with_pin_impl,
     tool_bump_version_impl,
     tool_claim_org_create_impl,
     tool_claim_role_impl,
+    tool_delete_job_impl,
     tool_delete_position_impl,
     tool_list_inbox_impl,
     tool_mark_read_impl,
     tool_read_memo_impl,
     tool_read_org_impl,
     tool_send_memo_impl,
+    tool_update_job_impl,
     tool_update_org_metadata_impl,
     tool_update_position_impl,
     tool_update_relationship_impl,
@@ -500,6 +503,86 @@ async def delete_position(
         session_token=session_token,
         org_slug=org_slug,
         position_id=position_id,
+        expected_version=expected_version,
+    )
+
+
+@mcp.tool()
+async def add_job(
+    session_token: str,
+    org_slug: str,
+    job: dict,
+    expected_version: str | None = None,
+) -> dict:
+    """Add a new roledef:Job item to an opencatalog.
+
+    `job` is the full new item dict (id, name, version, charter,
+    identity, voice, output_contract, guardrails, metadata). The
+    `type` field is set to "roledef:Job" if absent.
+
+    Auto-bumps patch-level version. Rejects if the id is already
+    taken by another Job in this opencatalog. After landing, any
+    Position whose `job_definition.id` matches this Job's id will
+    resolve cleanly on the next boot payload assembly.
+
+    Returns receipt with applied_fields=["+job:<id>"].
+    """
+    return await tool_add_job_impl(
+        session_token=session_token,
+        org_slug=org_slug,
+        job=job,
+        expected_version=expected_version,
+    )
+
+
+@mcp.tool()
+async def update_job(
+    session_token: str,
+    org_slug: str,
+    job_id: str,
+    patch: dict,
+    expected_version: str | None = None,
+) -> dict:
+    """Patch a roledef:Job item's fields.
+
+    Symmetric to update_position. `patch` is a partial dict of
+    job-level fields (charter, identity, voice, output_contract,
+    guardrails, metadata, name, version, etc.). Top-level keys
+    replace; arrays are replaced wholesale; null values delete
+    (RFC 7396 JSON Merge Patch).
+
+    Rejects id/type changes. Replicants reject. Auto-bumps version.
+    """
+    return await tool_update_job_impl(
+        session_token=session_token,
+        org_slug=org_slug,
+        job_id=job_id,
+        patch=patch,
+        expected_version=expected_version,
+    )
+
+
+@mcp.tool()
+async def delete_job(
+    session_token: str,
+    org_slug: str,
+    job_id: str,
+    expected_version: str | None = None,
+) -> dict:
+    """Remove a roledef:Job item from an opencatalog.
+
+    Strips position.job_definition references that resolve to the
+    deleted Job by id, keeping the artifact's internal consistency
+    whole. Position auth_sessions are NOT affected — the position
+    survives, just without its embedded Job specialization.
+
+    Returns receipt with applied_fields=["-job:<id>", maybe
+    "-position-refs:<n>" if any positions had references cleared].
+    """
+    return await tool_delete_job_impl(
+        session_token=session_token,
+        org_slug=org_slug,
+        job_id=job_id,
         expected_version=expected_version,
     )
 
