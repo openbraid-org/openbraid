@@ -36,6 +36,9 @@ EXPECTED_ROUTES = {
     "/add_position",
     "/delete_position",
     "/update_relationship",
+    "/add_job",
+    "/update_job",
+    "/delete_job",
     "/export/{account}/{org_slug}",
 }
 
@@ -51,6 +54,9 @@ AUTH_REQUIRED = {
     "/add_position",
     "/delete_position",
     "/update_relationship",
+    "/add_job",
+    "/update_job",
+    "/delete_job",
 }
 AUTH_NOT_REQUIRED = {
     "/claim_role",
