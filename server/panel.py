@@ -78,6 +78,19 @@ def _mcp_origin() -> str:
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
+def _session_ttl_seconds() -> int:
+    # Default 7 days for self-host friendliness; Director can override
+    # via PANEL_SESSION_TTL_SECONDS on Railway. NB: the Supabase JWT
+    # inside this cookie has its own expiry configured separately on
+    # the Supabase Authentication settings page — keep it >= this value
+    # or sessions will appear logged in but tool calls will 401.
+    raw = os.environ.get("PANEL_SESSION_TTL_SECONDS", "604800")
+    try:
+        return max(60, int(raw))
+    except ValueError:
+        return 604800
+
+
 async def _current_user(request: Request) -> dict | None:
     """Resolve the current user from the session cookie, or None."""
     token = request.cookies.get(SESSION_COOKIE)
@@ -94,7 +107,7 @@ def _set_session_cookie(response, access_token: str):
         httponly=True,
         secure=True,
         samesite="lax",
-        max_age=3600,
+        max_age=_session_ttl_seconds(),
     )
     return response
 
